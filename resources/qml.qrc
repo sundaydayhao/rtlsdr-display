@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/qml">
+        <file alias="Main.qml">../qml/Main.qml</file>
+        <file alias="AppTile.qml">../qml/AppTile.qml</file>
+        <file alias="FeaturePage.qml">../qml/FeaturePage.qml</file>
+        <file alias="IconGlyph.qml">../qml/IconGlyph.qml</file>
+        <file alias="RadarMapView.qml">../qml/RadarMapView.qml</file>
+        <file alias="StatusPill.qml">../qml/StatusPill.qml</file>
+        <file alias="WaterfallView.qml">../qml/WaterfallView.qml</file>
+    </qresource>
+</RCC>

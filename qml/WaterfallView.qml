@@ -1,0 +1,195 @@
+import QtQuick 2.12
+
+Rectangle {
+    id: root
+
+    property color accent: "#f77f00"
+    property var receiver: null
+    property var rows: []
+    property int bins: receiver ? receiver.fftSize : 512
+    property int maxRows: Math.max(28, Math.floor((height - 112) / 4))
+    property bool hasLiveSpan: false
+    property double latestLeftFrequencyHz: 0
+    property double latestRightFrequencyHz: 0
+    property double leftFrequencyHz: hasLiveSpan ? latestLeftFrequencyHz : (receiver ? receiver.centerFrequencyHz - receiver.sampleRateHz / 2 : 0)
+    property double rightFrequencyHz: hasLiveSpan ? latestRightFrequencyHz : (receiver ? receiver.centerFrequencyHz + receiver.sampleRateHz / 2 : 0)
+
+    radius: 8
+    color: "#090d12"
+    border.color: "#2b3640"
+    clip: true
+
+    onWidthChanged: waterfallCanvas.requestPaint()
+    onHeightChanged: waterfallCanvas.requestPaint()
+    onAccentChanged: waterfallCanvas.requestPaint()
+
+    Connections {
+        target: root.receiver
+
+        onSpectrumReady: {
+            root.pushSpectrum(levels, leftFrequencyHz, rightFrequencyHz)
+        }
+
+        onCenterFrequencyHzChanged: {
+            if (!root.receiver || !root.receiver.running) {
+                root.hasLiveSpan = false
+            }
+            waterfallCanvas.requestPaint()
+        }
+        onSampleRateHzChanged: {
+            root.hasLiveSpan = false
+            waterfallCanvas.requestPaint()
+        }
+    }
+
+    function pushSpectrum(levels, leftHz, rightHz) {
+        if (!levels || levels.length === 0) {
+            return
+        }
+
+        var row = []
+        for (var i = 0; i < levels.length; ++i) {
+            row.push(Number(levels[i]))
+        }
+
+        root.bins = row.length
+        root.latestLeftFrequencyHz = leftHz
+        root.latestRightFrequencyHz = rightHz
+        root.hasLiveSpan = true
+
+        var next = root.rows.slice(0)
+        next.unshift(row)
+        if (next.length > root.maxRows) {
+            next.length = root.maxRows
+        }
+        root.rows = next
+        waterfallCanvas.requestPaint()
+    }
+
+    function frequencyLabel(hz) {
+        if (Math.abs(hz) >= 1000000000) {
+            return (hz / 1000000000).toFixed(4) + " GHz"
+        }
+        return (hz / 1000000).toFixed(3) + " MHz"
+    }
+
+    Canvas {
+        id: waterfallCanvas
+        anchors.fill: parent
+        antialiasing: false
+
+        onPaint: {
+            var ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+            ctx.fillStyle = "#090d12"
+            ctx.fillRect(0, 0, width, height)
+
+            var spectrumHeight = Math.min(112, Math.max(88, height * 0.25))
+            var plotTop = spectrumHeight
+            var plotHeight = Math.max(1, height - spectrumHeight)
+            var cellW = width / Math.max(1, root.bins)
+            var cellH = Math.max(2, plotHeight / Math.max(1, root.maxRows))
+
+            ctx.fillStyle = "#0e151b"
+            ctx.fillRect(0, 0, width, spectrumHeight)
+
+            ctx.strokeStyle = "#263541"
+            ctx.lineWidth = 1
+            for (var gx = 0; gx <= 8; ++gx) {
+                var px = gx * width / 8
+                ctx.beginPath()
+                ctx.moveTo(px, 0)
+                ctx.lineTo(px, height)
+                ctx.stroke()
+            }
+
+            ctx.strokeStyle = "#1b2730"
+            for (var gy = 1; gy <= 3; ++gy) {
+                var py = gy * spectrumHeight / 4
+                ctx.beginPath()
+                ctx.moveTo(0, py)
+                ctx.lineTo(width, py)
+                ctx.stroke()
+            }
+
+            for (var y = 0; y < root.rows.length; ++y) {
+                var row = root.rows[y]
+                for (var x = 0; x < row.length; ++x) {
+                    ctx.fillStyle = colorFor(row[x])
+                    ctx.fillRect(x * cellW, plotTop + y * cellH, Math.ceil(cellW), Math.ceil(cellH))
+                }
+            }
+
+            var latest = root.rows.length > 0 ? root.rows[0] : []
+            if (latest.length > 0) {
+                ctx.strokeStyle = String(root.accent)
+                ctx.lineWidth = 2
+                ctx.beginPath()
+                for (var i = 0; i < latest.length; ++i) {
+                    var sx = i * cellW
+                    var sy = spectrumHeight - 18 - latest[i] * (spectrumHeight - 42)
+                    if (i === 0) {
+                        ctx.moveTo(sx, sy)
+                    } else {
+                        ctx.lineTo(sx, sy)
+                    }
+                }
+                ctx.stroke()
+            }
+
+            ctx.fillStyle = "rgba(9, 13, 18, 0.72)"
+            ctx.fillRect(0, spectrumHeight - 22, width, 22)
+
+            ctx.fillStyle = "#9fb2c0"
+            ctx.font = "12px sans-serif"
+            ctx.textBaseline = "middle"
+            ctx.textAlign = "left"
+            ctx.fillText(root.frequencyLabel(root.leftFrequencyHz), 12, spectrumHeight - 11)
+            ctx.textAlign = "center"
+            ctx.fillText(root.frequencyLabel((root.leftFrequencyHz + root.rightFrequencyHz) / 2), width / 2, spectrumHeight - 11)
+            ctx.textAlign = "right"
+            ctx.fillText(root.frequencyLabel(root.rightFrequencyHz), width - 12, spectrumHeight - 11)
+        }
+
+        function colorFor(v) {
+            if (v < 0.15) {
+                return "#06101c"
+            }
+            if (v < 0.32) {
+                return "#0a355e"
+            }
+            if (v < 0.50) {
+                return "#0c7d89"
+            }
+            if (v < 0.68) {
+                return "#35b779"
+            }
+            if (v < 0.84) {
+                return "#f4d35e"
+            }
+            return "#f77f00"
+        }
+    }
+
+    Text {
+        anchors.left: parent.left
+        anchors.leftMargin: 18
+        anchors.top: parent.top
+        anchors.topMargin: 14
+        text: "实时频谱 / 瀑布图"
+        color: "#eef6fb"
+        font.pixelSize: 18
+        font.bold: true
+    }
+
+    Text {
+        anchors.right: parent.right
+        anchors.rightMargin: 18
+        anchors.top: parent.top
+        anchors.topMargin: 17
+        text: receiver ? (receiver.running ? "接收中" : "停止") : ""
+        color: receiver && receiver.running ? "#80ed99" : "#9fb2c0"
+        font.pixelSize: 12
+        font.bold: true
+    }
+}
