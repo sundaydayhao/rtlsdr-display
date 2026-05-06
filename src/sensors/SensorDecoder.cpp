@@ -15,6 +15,13 @@ struct BitRow
     QString raw;
 };
 
+QVariantMap eventBase(const QString &modelName,
+                      const QString &protocol,
+                      const BitRow &row,
+                      double frequencyHz,
+                      double signalLevel);
+void finishEvent(QVariantMap *event);
+
 int signExtend(int value, int bits)
 {
     const int sign = 1 << (bits - 1);
@@ -86,7 +93,7 @@ QString rawForBits(const QVector<int> &bits)
     return raw;
 }
 
-void addRow(QList<BitRow> *rows, const QVector<int> &bits)
+void addRow(QList<BitRow> *rows, const QVector<int> &bits, int repeats = 1)
 {
     if (bits.size() < 8) {
         return;
@@ -98,11 +105,12 @@ void addRow(QList<BitRow> *rows, const QVector<int> &bits)
 
     for (BitRow &row : *rows) {
         if (row.bits.size() == next.bits.size() && row.raw == next.raw) {
-            row.repeats += 1;
+            row.repeats += repeats;
             return;
         }
     }
 
+    next.repeats = repeats;
     rows->append(next);
 }
 
@@ -190,6 +198,76 @@ const BitRow *findRow(const QList<BitRow> &rows, int expectedBits, int minRepeat
         }
     }
     return best;
+}
+
+QList<BitRow> fixedWidthRows(const QList<BitRow> &rows, int bitCount)
+{
+    QList<BitRow> windows;
+    for (const BitRow &row : rows) {
+        if (row.bits.size() < bitCount) {
+            continue;
+        }
+
+        if (row.bits.size() == bitCount) {
+            BitRow exact = row;
+            exact.raw = rawForBits(exact.bits);
+            addRow(&windows, exact.bits, exact.repeats);
+            continue;
+        }
+
+        for (int offset = 0; offset + bitCount <= row.bits.size(); ++offset) {
+            addRow(&windows, row.bits.mid(offset, bitCount), row.repeats);
+        }
+    }
+    return windows;
+}
+
+bool appendBestRepeatedWindow(const QList<BitRow> &rows,
+                              const QList<int> &bitCounts,
+                              QList<QVariantMap> *events,
+                              const QString &protocol,
+                              double frequencyHz,
+                              double signalLevel)
+{
+    BitRow best;
+    bool hasBest = false;
+
+    for (int bitCount : bitCounts) {
+        const QList<BitRow> windows = fixedWidthRows(rows, bitCount);
+        for (const BitRow &window : windows) {
+            if (!hasBest
+                    || window.repeats > best.repeats
+                    || (window.repeats == best.repeats && window.bits.size() > best.bits.size())) {
+                best = window;
+                hasBest = true;
+            }
+        }
+    }
+
+    if (!hasBest) {
+        return false;
+    }
+
+    QVariantMap event = eventBase(QStringLiteral("Generic-CarKey-RKE"),
+                                  protocol,
+                                  best,
+                                  frequencyHz,
+                                  signalLevel);
+    event.insert(QStringLiteral("deviceId"), QString());
+    event.insert(QStringLiteral("channel"), QString());
+    event.insert(QStringLiteral("hasBattery"), false);
+    event.insert(QStringLiteral("batteryOk"), false);
+    event.insert(QStringLiteral("hasTemperature"), false);
+    event.insert(QStringLiteral("temperatureC"), 0.0);
+    event.insert(QStringLiteral("hasHumidity"), false);
+    event.insert(QStringLiteral("humidity"), 0);
+    finishEvent(&event);
+    event.insert(QStringLiteral("summary"),
+                 QStringLiteral("RKE-like fixed %1 bit / raw %2")
+                     .arg(best.bits.size())
+                     .arg(best.raw));
+    events->append(event);
+    return true;
 }
 
 QVariantMap eventBase(const QString &modelName,
@@ -987,11 +1065,13 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     appendThermoProTx2(ppmTwoFourRows, &events, frequencyHz, signalLevel);
 
     const QList<BitRow> hcs200Rows = pwmRows(pulses, 370, 772, 1500);
-    bool decodedRke = appendHcs200(hcs200Rows, &events, frequencyHz, signalLevel);
+    const QList<BitRow> hcs200Frames = fixedWidthRows(hcs200Rows, 66);
+    bool decodedRke = appendHcs200(hcs200Frames, &events, frequencyHz, signalLevel);
 
     const QList<BitRow> hcs361Sync833Rows = pwmRows(pulses, 400, 800, 1200);
+    const QList<BitRow> hcs361Sync833Frames = fixedWidthRows(hcs361Sync833Rows, 67);
     if (!decodedRke) {
-        decodedRke = appendHcs361(hcs361Sync833Rows,
+        decodedRke = appendHcs361(hcs361Sync833Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 833 bps"),
                                   &events,
                                   frequencyHz,
@@ -999,8 +1079,9 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     }
 
     const QList<BitRow> hcs361Sync1667Rows = pwmRows(pulses, 200, 400, 600);
+    const QList<BitRow> hcs361Sync1667Frames = fixedWidthRows(hcs361Sync1667Rows, 67);
     if (!decodedRke) {
-        decodedRke = appendHcs361(hcs361Sync1667Rows,
+        decodedRke = appendHcs361(hcs361Sync1667Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 1667 bps"),
                                   &events,
                                   frequencyHz,
@@ -1008,8 +1089,9 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     }
 
     const QList<BitRow> hcs361NoSync833Rows = pwmRows(pulses, 200, 400, 1200);
+    const QList<BitRow> hcs361NoSync833Frames = fixedWidthRows(hcs361NoSync833Rows, 67);
     if (!decodedRke) {
-        decodedRke = appendHcs361(hcs361NoSync833Rows,
+        decodedRke = appendHcs361(hcs361NoSync833Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 no-sync"),
                                   &events,
                                   frequencyHz,
@@ -1017,8 +1099,9 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     }
 
     const QList<BitRow> hcs361NoSync1667Rows = pwmRows(pulses, 100, 200, 600);
+    const QList<BitRow> hcs361NoSync1667Frames = fixedWidthRows(hcs361NoSync1667Rows, 67);
     if (!decodedRke) {
-        decodedRke = appendHcs361(hcs361NoSync1667Rows,
+        decodedRke = appendHcs361(hcs361NoSync1667Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 fast"),
                                   &events,
                                   frequencyHz,
@@ -1026,13 +1109,16 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     }
 
     const QList<BitRow> chryslerRows = pwmRows(pulses, 350, 700, 4200);
+    QList<BitRow> chryslerFrames = fixedWidthRows(chryslerRows, 48);
+    chryslerFrames.append(fixedWidthRows(chryslerRows, 49));
     if (!decodedRke) {
-        decodedRke = appendChryslerRemote(chryslerRows, &events, frequencyHz, signalLevel);
+        decodedRke = appendChryslerRemote(chryslerFrames, &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> audiovoxRows = pwmRows(pulses, 445, 895, 1790);
+    const QList<BitRow> audiovoxFrames = fixedWidthRows(audiovoxRows, 25);
     if (!decodedRke) {
-        decodedRke = appendAudiovoxRemote(audiovoxRows, &events, frequencyHz, signalLevel);
+        decodedRke = appendAudiovoxRemote(audiovoxFrames, &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> genericRemoteRows = pwmRows(pulses, 464, 1404, 1800);
@@ -1074,6 +1160,30 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
             || appendGenericPwmRaw(genericRemoteRows, QStringLiteral("OOK PWM EV1527/SC226x"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(keruiRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(chuangoRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
+            || appendBestRepeatedWindow(hcs200Rows,
+                                        QList<int>{66, 67, 64, 96, 128},
+                                        &events,
+                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz,
+                                        signalLevel)
+            || appendBestRepeatedWindow(hcs361Sync833Rows,
+                                        QList<int>{67, 66, 64, 96, 128},
+                                        &events,
+                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz,
+                                        signalLevel)
+            || appendBestRepeatedWindow(hcs361NoSync1667Rows,
+                                        QList<int>{67, 66, 64, 96, 128},
+                                        &events,
+                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz,
+                                        signalLevel)
+            || appendBestRepeatedWindow(chryslerRows,
+                                        QList<int>{48, 49, 64, 66, 67},
+                                        &events,
+                                        QStringLiteral("OOK PWM car remote-like"),
+                                        frequencyHz,
+                                        signalLevel)
             || appendGenericRkeRaw(hcs200Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs361Sync833Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs361NoSync1667Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)

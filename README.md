@@ -84,7 +84,7 @@ export RTLSDR_SENSOR_PPM=0
 # export RTLSDR_SENSOR_DIRECT_SAMPLING=0
 ```
 
-打开 `433/315 报文解码` 后可以在 433.92 MHz、315.00 MHz 和 303.40 MHz 之间快速切换，也可以直接输入 MHz 频率。当前内置 OOK/ASK 脉冲切帧、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析，以及汽车遥控钥匙/RKE 的被动识别。已支持 Nexus/FreeTec/Solight/TFA、Baldr E0666TH、Acurite 609TXC、ThermoPro TX2、Generic Remote、Kerui/Chuango 门磁/PIR/水浸、Microchip HCS200/HCS300、HCS361/KeeLoq、Chrysler 和 Audiovox PRO-OE3B 这类报文。Keeloq/滚动码只显示序列号、按钮位、电池状态和 encrypted/rolling 原始片段，不做重放、破解或密钥推导；未识别型号会保留通用 OOK/RKE 原始载荷，方便后续按真实设备补协议字段。
+打开 `433/315 报文解码` 后可以在 433.92 MHz、315.00 MHz 和 303.40 MHz 之间快速切换，也可以直接输入 MHz 频率。当前内置 OOK/ASK 脉冲切帧、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析，以及汽车遥控钥匙/RKE 的被动识别。已支持 Nexus/FreeTec/Solight/TFA、Baldr E0666TH、Acurite 609TXC、ThermoPro TX2、Generic Remote、Kerui/Chuango 门磁/PIR/水浸、Microchip HCS200/HCS300、HCS361/KeeLoq、Chrysler 和 Audiovox PRO-OE3B 这类报文。Keeloq/滚动码只显示序列号、按钮位、电池状态和 encrypted/rolling 原始片段，不做重放、破解或密钥推导；未识别型号会优先从重复 burst 中抽取 48/64/66/67/96/128 bit 等固定长度 RKE 原始窗口，减少按键时长、重复帧和截断造成的 raw 长度抖动。
 
 AM 默认参数：
 
@@ -238,5 +238,5 @@ export RPI_SYSTEM_PROCESSOR=arm
 - AM：当前已内置单声道包络检波、AGC 和 PCM 播放，后续可扩展 SSB、同步检波、静噪、预设频道和录音。
 - FM：当前已内置 WFM/NFM 单声道解调和 PCM 播放，后续可扩展立体声、RDS、静噪、预设频道和录音。
 - 频谱瀑布图：当前由 C++ 后端读取 RTL-SDR I/Q 数据并做 FFT，再把归一化频谱行送入 QML Canvas；数据量变大后可改为 `QQuickFramebufferObject` 或自定义 Scene Graph 节点。
-- 433/315 MHz 报文：当前已内置 OOK/ASK 脉冲检测、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析、HCS200/HCS300/HCS361 等汽车 RKE 被动识别和通用原始码输出，后续可按现场设备型号补 CRC、滚动码、门磁/水浸/气象站专用字段。
+- 433/315 MHz 报文：当前已内置 OOK/ASK 脉冲检测、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析、HCS200/HCS300/HCS361 等汽车 RKE 被动识别、固定长度 RKE 窗口归一化和通用原始码输出，后续可按现场设备型号补 CRC、滚动码、门磁/水浸/气象站专用字段。
 - 录制：当前已内置原始 `u8` I/Q 文件录制，后续可扩展定时停止、磁盘剩余空间预警、SigMF 元数据和录制回放。
