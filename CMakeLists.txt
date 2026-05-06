@@ -52,6 +52,12 @@ set(PROJECT_SOURCES
     src/fm/FmReceiver.h
     src/record/RecordReceiver.cpp
     src/record/RecordReceiver.h
+    src/sensors/SensorDecoder.cpp
+    src/sensors/SensorDecoder.h
+    src/sensors/SensorEventModel.cpp
+    src/sensors/SensorEventModel.h
+    src/sensors/SensorReceiver.cpp
+    src/sensors/SensorReceiver.h
     src/waterfall/WaterfallReceiver.cpp
     src/waterfall/WaterfallReceiver.h
     resources/qml.qrc

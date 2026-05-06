@@ -5,6 +5,7 @@
         <file alias="FeaturePage.qml">../qml/FeaturePage.qml</file>
         <file alias="IconGlyph.qml">../qml/IconGlyph.qml</file>
         <file alias="RadarMapView.qml">../qml/RadarMapView.qml</file>
+        <file alias="SensorDecodeView.qml">../qml/SensorDecodeView.qml</file>
         <file alias="StatusPill.qml">../qml/StatusPill.qml</file>
         <file alias="WaterfallView.qml">../qml/WaterfallView.qml</file>
     </qresource>

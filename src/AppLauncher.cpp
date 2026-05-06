@@ -100,6 +100,9 @@ QString AppLauncher::envNameFor(const QString &appId)
     if (appId == QStringLiteral("record")) {
         return QStringLiteral("RTLSDR_PANEL_RECORD_CMD");
     }
+    if (appId == QStringLiteral("sensors")) {
+        return QStringLiteral("RTLSDR_PANEL_SENSORS_CMD");
+    }
 
     return QStringLiteral("RTLSDR_PANEL_%1_CMD").arg(appId.toUpper());
 }
@@ -120,6 +123,9 @@ QString AppLauncher::displayNameFor(const QString &appId)
     }
     if (appId == QStringLiteral("record")) {
         return QStringLiteral("射频信号录制");
+    }
+    if (appId == QStringLiteral("sensors")) {
+        return QStringLiteral("433/315 传感器解码");
     }
 
     return appId;

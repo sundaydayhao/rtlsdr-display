@@ -40,6 +40,13 @@ Window {
             "icon": "waterfall"
         },
         {
+            "id": "sensors",
+            "title": "433/315 报文解码",
+            "subtitle": "传感器 / 门磁 / 汽车钥匙",
+            "accent": "#2dd4bf",
+            "icon": "sensor"
+        },
+        {
             "id": "record",
             "title": "录制射频信号",
             "subtitle": "I/Q 基带采集与回放",
@@ -179,6 +186,12 @@ Window {
                 } else {
                     waterfallReceiver.start()
                 }
+            } else if (appId === "sensors") {
+                if (sensorReceiver.running) {
+                    sensorReceiver.stop()
+                } else {
+                    sensorReceiver.start()
+                }
             } else if (appId === "record") {
                 if (recordReceiver.running) {
                     recordReceiver.stop()
@@ -217,6 +230,7 @@ Window {
                   : root.activeFeature && root.activeFeature.id === "am" ? amReceiver.status
                   : root.activeFeature && root.activeFeature.id === "fm" ? fmReceiver.status
                   : root.activeFeature && root.activeFeature.id === "record" ? recordReceiver.status
+                  : root.activeFeature && root.activeFeature.id === "sensors" ? sensorReceiver.status
                   : root.activeFeature && root.activeFeature.id === "waterfall" ? waterfallReceiver.status
                   : appLauncher.lastMessage
             color: "#c7d0d9"

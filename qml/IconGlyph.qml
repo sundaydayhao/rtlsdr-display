@@ -94,6 +94,36 @@ Item {
                 return
             }
 
+            if (root.kind === "sensor") {
+                ctx.strokeStyle = c
+                ctx.fillStyle = c
+                ctx.lineWidth = 2.3
+                ctx.beginPath()
+                ctx.arc(w * 0.50, h * 0.62, w * 0.10, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.beginPath()
+                ctx.moveTo(w * 0.50, h * 0.72)
+                ctx.lineTo(w * 0.50, h * 0.86)
+                ctx.moveTo(w * 0.34, h * 0.86)
+                ctx.lineTo(w * 0.66, h * 0.86)
+                ctx.stroke()
+                for (var ring = 0; ring < 3; ++ring) {
+                    var radius = w * (0.18 + ring * 0.12)
+                    ctx.beginPath()
+                    ctx.arc(w * 0.50, h * 0.58, radius, -2.35, -0.78)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.arc(w * 0.50, h * 0.58, radius, -0.20, 1.38)
+                    ctx.stroke()
+                }
+                ctx.globalAlpha = 0.88
+                ctx.fillRect(w * 0.18, h * 0.14, w * 0.12, h * 0.12)
+                ctx.fillRect(w * 0.70, h * 0.18, w * 0.12, h * 0.12)
+                ctx.fillRect(w * 0.22, h * 0.38, w * 0.10, h * 0.10)
+                ctx.globalAlpha = 1.0
+                return
+            }
+
             if (root.kind === "record") {
                 ctx.beginPath()
                 ctx.arc(w * 0.5, h * 0.5, Math.min(w, h) * 0.30, 0, Math.PI * 2)

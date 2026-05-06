@@ -3,6 +3,7 @@
 #include "adsb/AdsbReceiver.h"
 #include "fm/FmReceiver.h"
 #include "record/RecordReceiver.h"
+#include "sensors/SensorReceiver.h"
 #include "waterfall/WaterfallReceiver.h"
 
 #include <QGuiApplication>
@@ -79,6 +80,7 @@ int main(int argc, char *argv[])
     AdsbReceiver adsbReceiver;
     FmReceiver fmReceiver;
     RecordReceiver recordReceiver;
+    SensorReceiver sensorReceiver;
     WaterfallReceiver waterfallReceiver;
 
     PanelNetworkAccessManagerFactory networkFactory;
@@ -89,6 +91,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("adsbReceiver"), &adsbReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("fmReceiver"), &fmReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("recordReceiver"), &recordReceiver);
+    engine.rootContext()->setContextProperty(QStringLiteral("sensorReceiver"), &sensorReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("waterfallReceiver"), &waterfallReceiver);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
 

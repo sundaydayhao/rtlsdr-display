@@ -58,6 +58,16 @@ Item {
         waterfallFrequencyInput.text = mhzText(waterfallReceiver.centerFrequencyHz, 3)
     }
 
+    function commitSensorFrequency() {
+        var mhz = parseFloat(sensorFrequencyInput.text)
+        if (isNaN(mhz)) {
+            sensorFrequencyInput.text = mhzText(sensorReceiver.centerFrequencyHz, 3)
+            return
+        }
+        sensorReceiver.tuneMHz(mhz)
+        sensorFrequencyInput.text = mhzText(sensorReceiver.centerFrequencyHz, 3)
+    }
+
     function commitFmFrequency() {
         var mhz = parseFloat(fmFrequencyInput.text)
         if (isNaN(mhz)) {
@@ -223,6 +233,7 @@ Item {
                   || (root.appId === "am" && amReceiver.running)
                   || (root.appId === "fm" && fmReceiver.running)
                   || (root.appId === "record" && recordReceiver.running)
+                  || (root.appId === "sensors" && sensorReceiver.running)
                   || (root.appId === "waterfall" && waterfallReceiver.running) ? "停止" : "启动"
             color: "#071014"
             font.pixelSize: 15
@@ -259,6 +270,7 @@ Item {
                              : root.appId === "am" ? amComponent
                              : root.appId === "fm" ? fmComponent
                              : root.appId === "record" ? recordComponent
+                             : root.appId === "sensors" ? sensorComponent
                              : root.appId === "waterfall" ? waterfallComponent
                              : receiverComponent
         }
@@ -285,6 +297,7 @@ Item {
                       : root.appId === "am" ? "AM 接收"
                       : root.appId === "fm" ? "FM 接收"
                       : root.appId === "record" ? "I/Q 录制"
+                      : root.appId === "sensors" ? "无线报文解码"
                       : root.appId === "waterfall" ? "瀑布图接收"
                       : "运行配置"
                 color: "#f3f6f8"
@@ -299,7 +312,7 @@ Item {
                 anchors.top: panelTitle.bottom
                 anchors.topMargin: 18
                 text: root.appId === "record" ? "录制状态"
-                      : root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "waterfall" ? "接收状态" : "启动命令"
+                      : root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "sensors" || root.appId === "waterfall" ? "接收状态" : "启动命令"
                 color: "#8d9daa"
                 font.pixelSize: 12
             }
@@ -331,13 +344,16 @@ Item {
                         if (root.appId === "record") {
                             return recordReceiver.status
                         }
+                        if (root.appId === "sensors") {
+                            return sensorReceiver.status
+                        }
                         if (root.appId === "waterfall") {
                             return waterfallReceiver.status
                         }
                         var cmd = appLauncher.commandFor(root.appId)
                         return cmd.length > 0 ? cmd : "未配置"
                     }
-                    color: root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "record" || root.appId === "waterfall"
+                    color: root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "record" || root.appId === "sensors" || root.appId === "waterfall"
                            || appLauncher.commandFor(root.appId).length > 0 ? "#d8e2ea" : "#788895"
                     font.pixelSize: 13
                     wrapMode: Text.Wrap
@@ -359,6 +375,7 @@ Item {
                            : root.appId === "am" ? (amReceiver.running ? "RTL-SDR：播放中" : "RTL-SDR：停止")
                            : root.appId === "fm" ? (fmReceiver.running ? "RTL-SDR：播放中" : "RTL-SDR：停止")
                            : root.appId === "record" ? (recordReceiver.running ? "I/Q：录制中" : "I/Q：停止")
+                           : root.appId === "sensors" ? (sensorReceiver.running ? "RTL-SDR：解码中" : "RTL-SDR：停止")
                            : root.appId === "waterfall" ? (waterfallReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
                            : "解调：SDR 后端"
                     accent: root.accent
@@ -371,6 +388,7 @@ Item {
                            : root.appId === "am" ? "模式：AM"
                            : root.appId === "adsb" ? ("设备：" + adsbReceiver.deviceCount + " 个")
                            : root.appId === "record" ? ("设备：" + recordReceiver.deviceCount + " 个")
+                           : root.appId === "sensors" ? ("设备：" + sensorReceiver.deviceCount + " 个")
                            : root.appId === "waterfall" ? ("设备：" + waterfallReceiver.deviceCount + " 个")
                            : "平台：本机 / RK3566"
                     accent: "#80ed99"
@@ -1006,6 +1024,188 @@ Item {
                     }
                 }
 
+                Column {
+                    width: parent.width
+                    visible: root.appId === "sensors"
+                    spacing: 6
+
+                    Row {
+                        id: sensorBandRow
+                        width: parent.width
+                        height: 32
+                        spacing: 8
+
+                        Repeater {
+                            model: [
+                                { "label": "433.92", "band": "433" },
+                                { "label": "315.00", "band": "315" },
+                                { "label": "303.40", "band": "303" }
+                            ]
+
+                            Rectangle {
+                                width: (sensorBandRow.width - sensorBandRow.spacing * 2) / 3
+                                height: sensorBandRow.height
+                                radius: 8
+                                color: sensorReceiver.bandLabel.indexOf(modelData.band) === 0 ? root.accent
+                                      : sensorBandMouse.pressed ? "#29323a"
+                                      : sensorBandMouse.containsMouse ? "#222a31" : "#101419"
+                                border.color: sensorReceiver.bandLabel.indexOf(modelData.band) === 0 ? root.accent : "#313c46"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: sensorReceiver.bandLabel.indexOf(modelData.band) === 0 ? "#071014" : "#d8e2ea"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    id: sensorBandMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        sensorReceiver.setBand(modelData.band)
+                                        sensorFrequencyInput.text = root.mhzText(sensorReceiver.centerFrequencyHz, 3)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 40
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: sensorFrequencyInput.activeFocus ? root.accent : "#27313a"
+
+                        TextInput {
+                            id: sensorFrequencyInput
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.right: sensorFrequencyUnit.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.mhzText(sensorReceiver.centerFrequencyHz, 3)
+                            color: "#eef6fb"
+                            selectedTextColor: "#071014"
+                            selectionColor: root.accent
+                            font.pixelSize: 18
+                            font.bold: true
+                            selectByMouse: true
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            onAccepted: root.commitSensorFrequency()
+                        }
+
+                        Text {
+                            id: sensorFrequencyUnit
+                            anchors.right: parent.right
+                            anchors.rightMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "MHz"
+                            color: "#8d9daa"
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Row {
+                        id: sensorStepRow
+                        width: parent.width
+                        height: 30
+                        spacing: 8
+
+                        Repeater {
+                            model: [
+                                { "label": "-1", "step": -1 },
+                                { "label": "-0.1", "step": -0.1 },
+                                { "label": "+0.1", "step": 0.1 },
+                                { "label": "+1", "step": 1 }
+                            ]
+
+                            Rectangle {
+                                width: (sensorStepRow.width - sensorStepRow.spacing * 3) / 4
+                                height: sensorStepRow.height
+                                radius: 8
+                                color: sensorStepMouse.pressed ? "#29323a" : sensorStepMouse.containsMouse ? "#222a31" : "#101419"
+                                border.color: "#313c46"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: "#d8e2ea"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    id: sensorStepMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        sensorReceiver.stepMHz(modelData.step)
+                                        sensorFrequencyInput.text = root.mhzText(sensorReceiver.centerFrequencyHz, 3)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        height: 32
+                        spacing: 8
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: 8
+                            color: sensorTuneMouse.pressed ? Qt.darker(root.accent, 1.35) : sensorTuneMouse.containsMouse ? Qt.lighter(root.accent, 1.08) : root.accent
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "调谐"
+                                color: "#071014"
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                id: sensorTuneMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.commitSensorFrequency()
+                            }
+                        }
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: 8
+                            color: sensorClearMouse.pressed ? "#29323a" : sensorClearMouse.containsMouse ? "#222a31" : "#101419"
+                            border.color: "#313c46"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "清空"
+                                color: "#d8e2ea"
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                id: sensorClearMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: sensorReceiver.clearEvents()
+                            }
+                        }
+                    }
+                }
+
                 StatusPill {
                     width: parent.width
                     visible: root.appId === "waterfall"
@@ -1467,6 +1667,14 @@ Item {
         WaterfallView {
             accent: root.accent
             receiver: waterfallReceiver
+        }
+    }
+
+    Component {
+        id: sensorComponent
+        SensorDecodeView {
+            accent: root.accent
+            receiver: sensorReceiver
         }
     }
 

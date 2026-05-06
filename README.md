@@ -1,6 +1,6 @@
 # RTL-SDR Panel
 
-这是一个面向 RK3566 buildroot、Raspberry Pi 和本机 Linux 的 Qt Quick/CMake 应用骨架。当前版本提供主界面、五个应用入口、内置 RTL-SDR ADS-B 解码、ADS-B 地图显示、RTL-SDR 实时频谱瀑布图、内置 AM/FM 调谐/解调播放、内置 I/Q 录制，以及一个 C++ 启动后端。
+这是一个面向 RK3566 buildroot、Raspberry Pi 和本机 Linux 的 Qt Quick/CMake 应用骨架。当前版本提供主界面、六个应用入口、内置 RTL-SDR ADS-B 解码、ADS-B 地图显示、RTL-SDR 实时频谱瀑布图、433/315 MHz 传感器/遥控钥匙报文解码、内置 AM/FM 调谐/解调播放、内置 I/Q 录制，以及一个 C++ 启动后端。
 
 ## 为什么用 Qt Quick
 
@@ -72,6 +72,19 @@ export RTLSDR_WATERFALL_PPM=0
 ```
 
 打开 `频谱瀑布图` 后可以直接输入中心频率 MHz，也可以用 `-10/-1/+1/+10` MHz 步进调谐。应用会按 RTL-SDR tuner 类型限制可调范围；常见 R820T/R820T2/R828D/R860 设备默认显示 24 MHz 到 1766 MHz。如果你的硬件支持直采或有扩展频段，可以用 `RTLSDR_WATERFALL_MIN_FREQ`、`RTLSDR_WATERFALL_MAX_FREQ` 和 `RTLSDR_WATERFALL_DIRECT_SAMPLING` 覆盖。
+
+433/315 MHz 报文解码默认参数：
+
+```sh
+export RTLSDR_SENSOR_DEVICE=0
+export RTLSDR_SENSOR_FREQ=433920000
+export RTLSDR_SENSOR_SAMPLE_RATE=250000
+export RTLSDR_SENSOR_PPM=0
+# export RTLSDR_SENSOR_GAIN=496
+# export RTLSDR_SENSOR_DIRECT_SAMPLING=0
+```
+
+打开 `433/315 报文解码` 后可以在 433.92 MHz、315.00 MHz 和 303.40 MHz 之间快速切换，也可以直接输入 MHz 频率。当前内置 OOK/ASK 脉冲切帧、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析，以及汽车遥控钥匙/RKE 的被动识别。已支持 Nexus/FreeTec/Solight/TFA、Baldr E0666TH、Acurite 609TXC、ThermoPro TX2、Generic Remote、Kerui/Chuango 门磁/PIR/水浸、Microchip HCS200/HCS300、HCS361/KeeLoq、Chrysler 和 Audiovox PRO-OE3B 这类报文。Keeloq/滚动码只显示序列号、按钮位、电池状态和 encrypted/rolling 原始片段，不做重放、破解或密钥推导；未识别型号会保留通用 OOK/RKE 原始载荷，方便后续按真实设备补协议字段。
 
 AM 默认参数：
 
@@ -184,7 +197,7 @@ export QT_QPA_EGLFS_FORCEVSYNC=1
 /usr/bin/rtlsdr-panel
 ```
 
-`deploy/rtlsdr-panel.env.example` 里给了运行环境变量示例。ADS-B、AM、FM、I/Q 录制和频谱瀑布图都是内置 RTL-SDR 后端。
+`deploy/rtlsdr-panel.env.example` 里给了运行环境变量示例。ADS-B、AM、FM、I/Q 录制、频谱瀑布图和 433/315 MHz 报文解码都是内置 RTL-SDR 后端。
 
 ## Raspberry Pi 编译
 
@@ -225,4 +238,5 @@ export RPI_SYSTEM_PROCESSOR=arm
 - AM：当前已内置单声道包络检波、AGC 和 PCM 播放，后续可扩展 SSB、同步检波、静噪、预设频道和录音。
 - FM：当前已内置 WFM/NFM 单声道解调和 PCM 播放，后续可扩展立体声、RDS、静噪、预设频道和录音。
 - 频谱瀑布图：当前由 C++ 后端读取 RTL-SDR I/Q 数据并做 FFT，再把归一化频谱行送入 QML Canvas；数据量变大后可改为 `QQuickFramebufferObject` 或自定义 Scene Graph 节点。
+- 433/315 MHz 报文：当前已内置 OOK/ASK 脉冲检测、常见 PPM 温湿度协议解析、EV1527/SC226x 风格 PWM 安防报文解析、HCS200/HCS300/HCS361 等汽车 RKE 被动识别和通用原始码输出，后续可按现场设备型号补 CRC、滚动码、门磁/水浸/气象站专用字段。
 - 录制：当前已内置原始 `u8` I/Q 文件录制，后续可扩展定时停止、磁盘剩余空间预警、SigMF 元数据和录制回放。
