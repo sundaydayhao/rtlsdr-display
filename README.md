@@ -1,6 +1,6 @@
 # RTL-SDR Panel
 
-这是一个面向 RK3566 buildroot、Raspberry Pi 和本机 Linux 的 Qt Quick/CMake 应用骨架。当前版本提供主界面、五个应用入口、内置 RTL-SDR ADS-B 解码、ADS-B 地图显示、RTL-SDR 实时频谱瀑布图、内置 FM 调谐/解调播放，以及一个 C++ 启动后端。
+这是一个面向 RK3566 buildroot、Raspberry Pi 和本机 Linux 的 Qt Quick/CMake 应用骨架。当前版本提供主界面、五个应用入口、内置 RTL-SDR ADS-B 解码、ADS-B 地图显示、RTL-SDR 实时频谱瀑布图、内置 AM/FM 调谐/解调播放、内置 I/Q 录制，以及一个 C++ 启动后端。
 
 ## 为什么用 Qt Quick
 
@@ -19,7 +19,7 @@ Gqrx 仍然很适合作为功能架构参考：它是基于 GNU Radio 和 Qt 的
 
 ## 本机编译
 
-需要安装 CMake、C++ 编译器、Qt5 或 Qt6 的 Qt Quick/Network 开发包、`librtlsdr-dev`，以及用于默认 FM 播放的 `aplay`。
+需要安装 CMake、C++ 编译器、Qt5 或 Qt6 的 Qt Quick/Network 开发包、`librtlsdr-dev`，以及用于默认 AM/FM 播放的 `aplay`。
 
 Ubuntu 22.04 示例：
 
@@ -73,6 +73,29 @@ export RTLSDR_WATERFALL_PPM=0
 
 打开 `频谱瀑布图` 后可以直接输入中心频率 MHz，也可以用 `-10/-1/+1/+10` MHz 步进调谐。应用会按 RTL-SDR tuner 类型限制可调范围；常见 R820T/R820T2/R828D/R860 设备默认显示 24 MHz 到 1766 MHz。如果你的硬件支持直采或有扩展频段，可以用 `RTLSDR_WATERFALL_MIN_FREQ`、`RTLSDR_WATERFALL_MAX_FREQ` 和 `RTLSDR_WATERFALL_DIRECT_SAMPLING` 覆盖。
 
+AM 默认参数：
+
+```sh
+export RTLSDR_AM_DEVICE=0
+export RTLSDR_AM_FREQ=118000000
+export RTLSDR_AM_SAMPLE_RATE=240000
+export RTLSDR_AM_AUDIO_RATE=48000
+export RTLSDR_AM_PPM=0
+# export RTLSDR_AM_GAIN=496
+# export RTLSDR_AM_VOLUME=0.80
+# export RTLSDR_AM_BANDWIDTH=12000
+# export RTLSDR_AM_AUDIO_CUTOFF=5000
+```
+
+打开 `AM 接收` 后可以输入 MHz 频率、用 `-0.1/-0.01/+0.01/+0.1` MHz 步进调谐。后端会从 RTL-SDR 读取 I/Q 数据，做 AM 包络检波、低通抽取、去直流、AGC 和单声道 PCM 输出。默认频率 118 MHz 适合普通 tuner 覆盖的航空 AM；如果要收中短波，需要硬件支持直采或上变频，并按实际硬件设置：
+
+```sh
+export RTLSDR_AM_DIRECT_SAMPLING=2
+export RTLSDR_AM_FREQ=7200000
+export RTLSDR_AM_MIN_FREQ=100000
+export RTLSDR_AM_MAX_FREQ=30000000
+```
+
 FM 默认参数：
 
 ```sh
@@ -93,11 +116,26 @@ export RTLSDR_FM_PPM=0
 aplay -q -t raw -f S16_LE -r 48000 -c 1
 ```
 
-如果目标系统不用 `aplay`，可以设置 `RTLSDR_FM_AUDIO_CMD`，命令里可用 `{rate}`/`%r` 和 `{channels}`/`%c` 占位：
+如果目标系统不用 `aplay`，可以设置 `RTLSDR_AM_AUDIO_CMD` 或 `RTLSDR_FM_AUDIO_CMD`，命令里可用 `{rate}`/`%r` 和 `{channels}`/`%c` 占位：
 
 ```sh
+export RTLSDR_AM_AUDIO_CMD="aplay -q -t raw -f S16_LE -r {rate} -c {channels}"
 export RTLSDR_FM_AUDIO_CMD="aplay -q -t raw -f S16_LE -r {rate} -c {channels}"
 ```
+
+I/Q 录制默认参数：
+
+```sh
+export RTLSDR_RECORD_DEVICE=0
+export RTLSDR_RECORD_FREQ=100000000
+export RTLSDR_RECORD_SAMPLE_RATE=2400000
+export RTLSDR_RECORD_PPM=0
+# export RTLSDR_RECORD_GAIN=496
+# export RTLSDR_RECORD_OUTPUT_DIR=/data/rtlsdr-recordings
+# export RTLSDR_RECORD_FILE=/data/rtlsdr-recordings/capture.iq
+```
+
+打开 `录制射频信号` 后可以设置中心频率、采样率和保存路径。点击 `启动` 后应用会把 RTL-SDR 原始 `u8` 交错 I/Q 字节写入 `.iq` 文件，并在界面上显示录制时长、文件大小和实际保存位置。未配置 `RTLSDR_RECORD_FILE` 时，应用会在文档目录下的 `rtlsdr-recordings` 文件夹自动生成文件名；如果目标文件已存在，会自动追加序号避免覆盖。
 
 ### ADS-B 硬件要求
 
@@ -124,7 +162,7 @@ cmake --build build-rpi -j
 
 ## RK3566 buildroot 交叉编译
 
-Buildroot 里至少需要启用 Qt Base、Qt Network、Qt Declarative/Qt Quick、OpenGL ES/EGL、目标板 GPU/DRM 相关库、`rtl-sdr`/`librtlsdr`，以及 FM 默认播放用的 ALSA 工具 `aplay`。不同 BSP 的选项名会有差异，核心是目标 sysroot 里必须能被 CMake 找到 `Qt5Quick`/`Qt5Network` 或 `Qt6Quick`/`Qt6Network`，并且能链接 `librtlsdr`。
+Buildroot 里至少需要启用 Qt Base、Qt Network、Qt Declarative/Qt Quick、OpenGL ES/EGL、目标板 GPU/DRM 相关库、`rtl-sdr`/`librtlsdr`，以及 AM/FM 默认播放用的 ALSA 工具 `aplay`。不同 BSP 的选项名会有差异，核心是目标 sysroot 里必须能被 CMake 找到 `Qt5Quick`/`Qt5Network` 或 `Qt6Quick`/`Qt6Network`，并且能链接 `librtlsdr`。
 
 复制工具链模板并设置 buildroot host 路径：
 
@@ -146,11 +184,7 @@ export QT_QPA_EGLFS_FORCEVSYNC=1
 /usr/bin/rtlsdr-panel
 ```
 
-`deploy/rtlsdr-panel.env.example` 里给了运行环境变量示例。ADS-B、FM 和频谱瀑布图是内置 RTL-SDR 后端，AM/录制等其它入口仍可通过命令变量启动：
-
-```sh
-export RTLSDR_PANEL_AM_CMD="/usr/bin/rtlsdr-am"
-```
+`deploy/rtlsdr-panel.env.example` 里给了运行环境变量示例。ADS-B、AM、FM、I/Q 录制和频谱瀑布图都是内置 RTL-SDR 后端。
 
 ## Raspberry Pi 编译
 
@@ -188,7 +222,7 @@ export RPI_SYSTEM_PROCESSOR=arm
 ## 后续接入建议
 
 - ADS-B：当前已内置 DF17 呼号、高度、速度/航向和 CPR 经纬度解码；地图默认加载 OpenStreetMap 在线瓦片，后续可在 `RadarMapView.qml` 里替换瓦片 URL，或扩展为高德/百度坐标适配、离线瓦片、自建瓦片服务。
-- AM：底层可继续用 `rtl-sdr` 采样，DSP 可参考 Gqrx 的链路拆分，但在 RK3566 上要控制 GNU Radio 依赖体积。
+- AM：当前已内置单声道包络检波、AGC 和 PCM 播放，后续可扩展 SSB、同步检波、静噪、预设频道和录音。
 - FM：当前已内置 WFM/NFM 单声道解调和 PCM 播放，后续可扩展立体声、RDS、静噪、预设频道和录音。
 - 频谱瀑布图：当前由 C++ 后端读取 RTL-SDR I/Q 数据并做 FFT，再把归一化频谱行送入 QML Canvas；数据量变大后可改为 `QQuickFramebufferObject` 或自定义 Scene Graph 节点。
-- 录制：初期可直接封装 `rtl_sdr` 命令，后续改为应用内统一管理采样参数、文件名和剩余空间。
+- 录制：当前已内置原始 `u8` I/Q 文件录制，后续可扩展定时停止、磁盘剩余空间预警、SigMF 元数据和录制回放。

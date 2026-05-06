@@ -40,6 +40,8 @@ set(PROJECT_SOURCES
     src/main.cpp
     src/AppLauncher.cpp
     src/AppLauncher.h
+    src/am/AmReceiver.cpp
+    src/am/AmReceiver.h
     src/adsb/AdsbAircraftModel.cpp
     src/adsb/AdsbAircraftModel.h
     src/adsb/AdsbDecoder.cpp
@@ -48,6 +50,8 @@ set(PROJECT_SOURCES
     src/adsb/AdsbReceiver.h
     src/fm/FmReceiver.cpp
     src/fm/FmReceiver.h
+    src/record/RecordReceiver.cpp
+    src/record/RecordReceiver.h
     src/waterfall/WaterfallReceiver.cpp
     src/waterfall/WaterfallReceiver.h
     resources/qml.qrc

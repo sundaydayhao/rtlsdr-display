@@ -21,7 +21,7 @@ Window {
         {
             "id": "am",
             "title": "AM 接收",
-            "subtitle": "中短波调幅监听",
+            "subtitle": "中短波 / 航空调幅监听",
             "accent": "#f4d35e",
             "icon": "am"
         },
@@ -161,6 +161,12 @@ Window {
                 } else {
                     adsbReceiver.start()
                 }
+            } else if (appId === "am") {
+                if (amReceiver.running) {
+                    amReceiver.stop()
+                } else {
+                    amReceiver.start()
+                }
             } else if (appId === "fm") {
                 if (fmReceiver.running) {
                     fmReceiver.stop()
@@ -172,6 +178,12 @@ Window {
                     waterfallReceiver.stop()
                 } else {
                     waterfallReceiver.start()
+                }
+            } else if (appId === "record") {
+                if (recordReceiver.running) {
+                    recordReceiver.stop()
+                } else {
+                    recordReceiver.start()
                 }
             } else {
                 appLauncher.launch(appId)
@@ -202,7 +214,9 @@ Window {
             width: parent.width - 96
             elide: Text.ElideRight
             text: root.activeFeature && root.activeFeature.id === "adsb" ? adsbReceiver.status
+                  : root.activeFeature && root.activeFeature.id === "am" ? amReceiver.status
                   : root.activeFeature && root.activeFeature.id === "fm" ? fmReceiver.status
+                  : root.activeFeature && root.activeFeature.id === "record" ? recordReceiver.status
                   : root.activeFeature && root.activeFeature.id === "waterfall" ? waterfallReceiver.status
                   : appLauncher.lastMessage
             color: "#c7d0d9"
