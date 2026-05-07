@@ -139,9 +139,29 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 ```
 
-### 交叉编译（树莓派）
+### 树莓派本机构建
+
+在树莓派系统上直接编译时，不要指定 `CMAKE_TOOLCHAIN_FILE`。`cmake/raspberrypi-buildroot-toolchain.cmake.example` 只用于在 PC/服务器上通过 Buildroot 交叉编译树莓派程序。
 
 ```bash
+sudo apt update
+sudo apt install -y build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev librtlsdr-dev libusb-1.0-0-dev
+
+mkdir build && cd build
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRTLSDR_PANEL_TARGET=raspberrypi
+cmake --build . -j$(nproc)
+```
+
+如果之前在同一个 `build` 目录里配置过交叉编译工具链，请先删除该目录，或至少删除 `build/CMakeCache.txt` 后重新运行 CMake。
+
+### 交叉编译（树莓派）
+
+下面的命令用于在非树莓派主机上使用 Buildroot 工具链交叉编译。运行前需要把 `RPI_BUILDROOT_HOST` 指向 Buildroot 的 `output/host` 目录。
+
+```bash
+export RPI_BUILDROOT_HOST=/opt/raspberrypi-buildroot/output/host
 mkdir build-rpi && cd build-rpi
 cmake .. \
   -DCMAKE_TOOLCHAIN_FILE=../cmake/raspberrypi-buildroot-toolchain.cmake.example \
