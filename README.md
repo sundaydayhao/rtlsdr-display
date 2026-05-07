@@ -50,7 +50,7 @@ export RTLSDR_ADSB_PPM=0
 # export RTLSDR_ADSB_GAIN=496
 ```
 
-打开界面后进入 `ADS-B 飞机识别`，点击 `启动` 即可从 RTL-SDR 接收 1090 MHz ADS-B。地图使用 OpenStreetMap 在线瓦片，飞机坐标按 ADS-B 解码得到的 WGS84 经纬度直接叠加；界面会显示呼号/ICAO、高度、速度、航向、位置和最近更新时间。地图中心默认使用上海坐标，也可以改为你的接收站坐标：
+打开界面后进入 `ADS-B 飞机识别`，点击 `启动` 即可从 RTL-SDR 接收 1090 MHz ADS-B。地图固定使用高德在线瓦片，飞机坐标按 ADS-B 解码得到的 WGS84 经纬度转换为 GCJ-02 后叠加；界面会显示呼号/ICAO、高度、速度、航向、位置和最近更新时间。高度显示为米，速度显示为 km/h。点击右侧航班信息会把地图切到对应飞机居中，右侧 `航迹` 开关可控制是否显示历史轨迹。地图中心默认使用上海坐标，也可以改为你的接收站坐标：
 
 ```sh
 export RTLSDR_PANEL_LAT=31.2304
@@ -58,7 +58,7 @@ export RTLSDR_PANEL_LON=121.4737
 export RTLSDR_PANEL_MAP_AUTO_CENTER=1
 ```
 
-OSM 官方瓦片适合本机和小流量使用。应用会为地图请求设置 `rtlsdr-panel` User-Agent，并把瓦片缓存在 Qt cache 目录；如果要公开部署给多人访问，建议改接商业 OSM 瓦片服务、MapTiler/Mapbox/OpenMapTiles，或自建瓦片服务。
+应用会为地图请求设置 `rtlsdr-panel` User-Agent，并把瓦片缓存在 Qt cache 目录。
 
 频谱瀑布图默认参数：
 
@@ -234,7 +234,7 @@ export RPI_SYSTEM_PROCESSOR=arm
 
 ## 后续接入建议
 
-- ADS-B：当前已内置 DF17 呼号、高度、速度/航向和 CPR 经纬度解码；地图默认加载 OpenStreetMap 在线瓦片，后续可在 `RadarMapView.qml` 里替换瓦片 URL，或扩展为高德/百度坐标适配、离线瓦片、自建瓦片服务。
+- ADS-B：当前已内置 DF17 呼号、高度、速度/航向和 CPR 经纬度解码；地图固定使用高德瓦片，后续可扩展离线瓦片、自建瓦片服务或更丰富的航迹分析。
 - AM：当前已内置单声道包络检波、AGC 和 PCM 播放，后续可扩展 SSB、同步检波、静噪、预设频道和录音。
 - FM：当前已内置 WFM/NFM 单声道解调和 PCM 播放，后续可扩展立体声、RDS、静噪、预设频道和录音。
 - 频谱瀑布图：当前由 C++ 后端读取 RTL-SDR I/Q 数据并做 FFT，再把归一化频谱行送入 QML Canvas；数据量变大后可改为 `QQuickFramebufferObject` 或自定义 Scene Graph 节点。

@@ -6,6 +6,7 @@
 #include "sensors/SensorReceiver.h"
 #include "waterfall/WaterfallReceiver.h"
 
+#include <QByteArray>
 #include <QGuiApplication>
 #include <QDir>
 #include <QNetworkAccessManager>
@@ -15,6 +16,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlNetworkAccessManagerFactory>
 #include <QQmlContext>
+#include <QString>
 #include <QStandardPaths>
 #include <QUrl>
 
@@ -47,7 +49,7 @@ protected:
             taggedRequest.setRawHeader("User-Agent",
                                        QByteArrayLiteral("rtlsdr-panel/")
                                            + QByteArrayLiteral(APP_VERSION)
-                                           + QByteArrayLiteral(" (ADS-B OSM map)"));
+                                           + QByteArrayLiteral(" (ADS-B map)"));
         }
         return QNetworkAccessManager::createRequest(operation, taggedRequest, outgoingData);
     }

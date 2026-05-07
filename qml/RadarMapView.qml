@@ -8,9 +8,12 @@ Rectangle {
     property int aircraftCount: 0
     property real centerLatitude: 31.2304
     property real centerLongitude: 121.4737
-    property string mapProvider: "osm"
-    property string tileUrlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-    property string mapAttribution: "© OpenStreetMap contributors"
+    property string mapProvider: "gaode"
+    property string tileUrlTemplate: "http://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
+    property string tileSubdomains: "1,2,3,4"
+    property string mapAttribution: "高德地图"
+    property string mapCoordinateSystem: "gcj02"
+    property bool showTracks: true
     property int zoomLevel: 9
     property int minimumZoom: 3
     property int maximumZoom: 17
@@ -20,6 +23,10 @@ Rectangle {
     property int tileSize: 256
     property var visibleTiles: []
     property var selectedAircraft: null
+    property int tileLoadEpoch: 0
+    property int readyTileCount: 0
+    property int failedTileCount: 0
+    property var tileLoadStates: ({})
 
     readonly property real maxMercatorLatitude: 85.05112878
 
@@ -36,6 +43,9 @@ Rectangle {
     onZoomLevelChanged: refreshTiles()
     onWidthChanged: refreshTiles()
     onHeightChanged: refreshTiles()
+    onTileUrlTemplateChanged: refreshTiles()
+    onTileSubdomainsChanged: refreshTiles()
+    onMapCoordinateSystemChanged: refreshTiles()
     Component.onCompleted: refreshTiles()
 
     radius: 8
@@ -62,11 +72,11 @@ Rectangle {
         return tileSize * Math.pow(2, zoom)
     }
 
-    function lonToWorldX(longitude, zoom) {
+    function lonToWorldXValue(longitude, zoom) {
         return (normalizeLongitude(longitude) + 180) / 360 * mapScale(zoom)
     }
 
-    function latToWorldY(latitude, zoom) {
+    function latToWorldYValue(latitude, zoom) {
         var lat = clampLatitude(latitude)
         var sinLatitude = Math.sin(lat * Math.PI / 180)
         return (0.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * mapScale(zoom)
@@ -85,22 +95,103 @@ Rectangle {
         return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))
     }
 
+    function isInGcjRegion(latitude, longitude) {
+        return longitude > 72.004 && longitude < 137.8347
+                && latitude > 0.8293 && latitude < 55.8271
+    }
+
+    function transformGcjLatitude(x, y) {
+        var ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y
+                  + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x))
+        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0
+        ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0
+        return ret
+    }
+
+    function transformGcjLongitude(x, y) {
+        var ret = 300.0 + x + 2.0 * y + 0.1 * x * x
+                  + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x))
+        ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0
+        ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0
+        return ret
+    }
+
+    function wgs84ToGcj02(latitude, longitude) {
+        if (!isInGcjRegion(latitude, longitude)) {
+            return { "latitude": clampLatitude(latitude), "longitude": normalizeLongitude(longitude) }
+        }
+
+        var a = 6378245.0
+        var ee = 0.00669342162296594323
+        var dLat = transformGcjLatitude(longitude - 105.0, latitude - 35.0)
+        var dLon = transformGcjLongitude(longitude - 105.0, latitude - 35.0)
+        var radLat = latitude / 180.0 * Math.PI
+        var magic = Math.sin(radLat)
+        magic = 1 - ee * magic * magic
+        var sqrtMagic = Math.sqrt(magic)
+        dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI)
+        dLon = (dLon * 180.0) / (a / sqrtMagic * Math.cos(radLat) * Math.PI)
+        return { "latitude": clampLatitude(latitude + dLat), "longitude": normalizeLongitude(longitude + dLon) }
+    }
+
+    function gcj02ToWgs84(latitude, longitude) {
+        if (!isInGcjRegion(latitude, longitude)) {
+            return { "latitude": clampLatitude(latitude), "longitude": normalizeLongitude(longitude) }
+        }
+
+        var gcj = wgs84ToGcj02(latitude, longitude)
+        return {
+            "latitude": clampLatitude(latitude * 2 - gcj.latitude),
+            "longitude": normalizeLongitude(longitude * 2 - gcj.longitude)
+        }
+    }
+
+    function mapToTileCoordinate(latitude, longitude) {
+        if (mapCoordinateSystem === "gcj02") {
+            return wgs84ToGcj02(latitude, longitude)
+        }
+        return { "latitude": clampLatitude(latitude), "longitude": normalizeLongitude(longitude) }
+    }
+
+    function tileToMapCoordinate(latitude, longitude) {
+        if (mapCoordinateSystem === "gcj02") {
+            return gcj02ToWgs84(latitude, longitude)
+        }
+        return { "latitude": clampLatitude(latitude), "longitude": normalizeLongitude(longitude) }
+    }
+
+    function coordinateToWorld(latitude, longitude, zoom) {
+        var coordinate = mapToTileCoordinate(latitude, longitude)
+        return Qt.point(lonToWorldXValue(coordinate.longitude, zoom),
+                        latToWorldYValue(coordinate.latitude, zoom))
+    }
+
+    function worldToCoordinate(worldX, worldY, zoom) {
+        var tileCoordinate = {
+            "latitude": worldYToLat(worldY, zoom),
+            "longitude": worldXToLon(worldX, zoom)
+        }
+        return tileToMapCoordinate(tileCoordinate.latitude, tileCoordinate.longitude)
+    }
+
     function coordinateToPoint(latitude, longitude) {
-        var centerX = lonToWorldX(mapLongitude, zoomLevel)
-        var centerY = latToWorldY(mapLatitude, zoomLevel)
-        return Qt.point(width * 0.5 + lonToWorldX(longitude, zoomLevel) - centerX,
-                        height * 0.5 + latToWorldY(latitude, zoomLevel) - centerY)
+        var center = coordinateToWorld(mapLatitude, mapLongitude, zoomLevel)
+        var coordinate = coordinateToWorld(latitude, longitude, zoomLevel)
+        return Qt.point(width * 0.5 + coordinate.x - center.x,
+                        height * 0.5 + coordinate.y - center.y)
     }
 
     function setCenterFromWorld(worldX, worldY, zoom) {
-        mapLatitude = clampLatitude(worldYToLat(worldY, zoom))
-        mapLongitude = normalizeLongitude(worldXToLon(worldX, zoom))
+        var coordinate = worldToCoordinate(worldX, worldY, zoom)
+        mapLatitude = clampLatitude(coordinate.latitude)
+        mapLongitude = normalizeLongitude(coordinate.longitude)
     }
 
     function panBy(deltaX, deltaY) {
-        var centerX = lonToWorldX(mapLongitude, zoomLevel)
-        var centerY = latToWorldY(mapLatitude, zoomLevel)
-        setCenterFromWorld(centerX + deltaX, centerY + deltaY, zoomLevel)
+        var center = coordinateToWorld(mapLatitude, mapLongitude, zoomLevel)
+        setCenterFromWorld(center.x + deltaX, center.y + deltaY, zoomLevel)
     }
 
     function zoomAt(pointX, pointY, delta) {
@@ -109,36 +200,111 @@ Rectangle {
             return
         }
 
-        var oldCenterX = lonToWorldX(mapLongitude, zoomLevel)
-        var oldCenterY = latToWorldY(mapLatitude, zoomLevel)
-        var anchorLon = worldXToLon(oldCenterX + pointX - width * 0.5, zoomLevel)
-        var anchorLat = worldYToLat(oldCenterY + pointY - height * 0.5, zoomLevel)
+        var oldCenter = coordinateToWorld(mapLatitude, mapLongitude, zoomLevel)
+        var anchor = worldToCoordinate(oldCenter.x + pointX - width * 0.5,
+                                       oldCenter.y + pointY - height * 0.5,
+                                       zoomLevel)
 
         zoomLevel = nextZoom
 
-        var newAnchorX = lonToWorldX(anchorLon, zoomLevel)
-        var newAnchorY = latToWorldY(anchorLat, zoomLevel)
-        setCenterFromWorld(newAnchorX - pointX + width * 0.5,
-                           newAnchorY - pointY + height * 0.5,
+        var newAnchor = coordinateToWorld(anchor.latitude, anchor.longitude, zoomLevel)
+        setCenterFromWorld(newAnchor.x - pointX + width * 0.5,
+                           newAnchor.y - pointY + height * 0.5,
                            zoomLevel)
+    }
+
+    function tileSubdomain(tileX, tileY) {
+        var subdomains = tileSubdomains.split(",")
+        var values = []
+        for (var i = 0; i < subdomains.length; ++i) {
+            var value = subdomains[i].trim()
+            if (value.length > 0) {
+                values.push(value)
+            }
+        }
+
+        if (values.length === 0) {
+            return ""
+        }
+
+        var index = Math.abs(tileX * 31 + tileY * 17 + zoomLevel) % values.length
+        return values[index]
     }
 
     function buildTileUrl(zoom, tileX, tileY) {
         var tilesPerAxis = Math.pow(2, zoom)
         var wrappedX = ((tileX % tilesPerAxis) + tilesPerAxis) % tilesPerAxis
-        return tileUrlTemplate.replace("{z}", zoom)
+        return tileUrlTemplate.replace("{s}", tileSubdomain(wrappedX, tileY))
+                              .replace("{z}", zoom)
                               .replace("{x}", wrappedX)
                               .replace("{y}", tileY)
     }
 
+    function resetTileTracking() {
+        tileLoadStates = ({})
+        readyTileCount = 0
+        failedTileCount = 0
+    }
+
+    function updateTileStatus(epoch, url, status) {
+        if (epoch !== tileLoadEpoch || url.length === 0) {
+            return
+        }
+
+        var previous = tileLoadStates[url] || ""
+        if (previous === "ready") {
+            readyTileCount = Math.max(0, readyTileCount - 1)
+        } else if (previous === "error") {
+            failedTileCount = Math.max(0, failedTileCount - 1)
+        }
+
+        var next = ""
+        if (status === Image.Ready) {
+            next = "ready"
+        } else if (status === Image.Error) {
+            next = "error"
+        } else if (status === Image.Loading) {
+            next = "loading"
+        }
+
+        tileLoadStates[url] = next
+        if (next === "ready") {
+            readyTileCount += 1
+        } else if (next === "error") {
+            failedTileCount += 1
+        }
+
+    }
+
+    function focusAircraft(aircraft) {
+        if (!aircraft) {
+            return
+        }
+
+        selectedAircraft = aircraft
+        if (!aircraft.hasPosition) {
+            return
+        }
+
+        mapLatitude = clampLatitude(aircraft.latitude)
+        mapLongitude = normalizeLongitude(aircraft.longitude)
+        if (zoomLevel < 11) {
+            zoomLevel = 11
+        }
+    }
+
     function refreshTiles() {
+        ++tileLoadEpoch
+        resetTileTracking()
+
         if (width <= 0 || height <= 0) {
             visibleTiles = []
             return
         }
 
-        var centerX = lonToWorldX(mapLongitude, zoomLevel)
-        var centerY = latToWorldY(mapLatitude, zoomLevel)
+        var center = coordinateToWorld(mapLatitude, mapLongitude, zoomLevel)
+        var centerX = center.x
+        var centerY = center.y
         var startX = Math.floor((centerX - width * 0.5) / tileSize) - 1
         var endX = Math.floor((centerX + width * 0.5) / tileSize) + 1
         var startY = Math.floor((centerY - height * 0.5) / tileSize) - 1
@@ -154,6 +320,7 @@ Rectangle {
             for (var x = startX; x <= endX; ++x) {
                 tiles.push({
                     "key": zoomLevel + ":" + x + ":" + y,
+                    "epoch": tileLoadEpoch,
                     "screenX": width * 0.5 + x * tileSize - centerX,
                     "screenY": height * 0.5 + y * tileSize - centerY,
                     "url": buildTileUrl(zoomLevel, x, y)
@@ -172,11 +339,11 @@ Rectangle {
     }
 
     function altitudeText(hasAltitude, altitude) {
-        return hasAltitude ? altitude + " ft" : "高度未知"
+        return hasAltitude ? Math.round(altitude * 0.3048) + " m" : "高度未知"
     }
 
     function speedText(hasSpeed, speed) {
-        return hasSpeed ? Math.round(speed) + " kt" : "速度未知"
+        return hasSpeed ? Math.round(speed * 1.852) + " km/h" : "速度未知"
     }
 
     function headingText(hasHeading, heading) {
@@ -208,6 +375,9 @@ Rectangle {
             sourceSize.height: root.tileSize
             opacity: status === Image.Ready ? 1 : 0
 
+            Component.onCompleted: root.updateTileStatus(modelData.epoch, modelData.url, status)
+            onStatusChanged: root.updateTileStatus(modelData.epoch, modelData.url, status)
+
             Behavior on opacity {
                 NumberAnimation {
                     duration: 140
@@ -220,6 +390,61 @@ Rectangle {
         anchors.fill: parent
         color: "#061016"
         opacity: 0.12
+    }
+
+    Repeater {
+        model: root.showTracks ? root.aircraftModel : null
+
+        Canvas {
+            id: trackCanvas
+            width: root.width
+            height: root.height
+            visible: root.showTracks && hasPosition && track && track.length > 1
+            z: 18
+            antialiasing: true
+            property var path: track
+            property string aircraftCode: icao
+
+            onPathChanged: requestPaint()
+            onVisibleChanged: requestPaint()
+            Component.onCompleted: requestPaint()
+
+            Connections {
+                target: root
+                function onMapLatitudeChanged() { trackCanvas.requestPaint() }
+                function onMapLongitudeChanged() { trackCanvas.requestPaint() }
+                function onZoomLevelChanged() { trackCanvas.requestPaint() }
+                function onWidthChanged() { trackCanvas.requestPaint() }
+                function onHeightChanged() { trackCanvas.requestPaint() }
+                function onShowTracksChanged() { trackCanvas.requestPaint() }
+                function onSelectedAircraftChanged() { trackCanvas.requestPaint() }
+            }
+
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                if (!root.showTracks || !path || path.length < 2) {
+                    return
+                }
+
+                var selected = root.selectedAircraft && root.selectedAircraft.icao === aircraftCode
+                ctx.beginPath()
+                for (var i = 0; i < path.length; ++i) {
+                    var point = path[i]
+                    var screenPoint = root.coordinateToPoint(point.latitude, point.longitude)
+                    if (i === 0) {
+                        ctx.moveTo(screenPoint.x, screenPoint.y)
+                    } else {
+                        ctx.lineTo(screenPoint.x, screenPoint.y)
+                    }
+                }
+                ctx.strokeStyle = selected ? String(root.accent) : "rgba(130, 150, 165, 0.68)"
+                ctx.lineWidth = selected ? 2.6 : 1.7
+                ctx.shadowColor = selected ? "rgba(76, 201, 240, 0.26)" : "rgba(0, 0, 0, 0.16)"
+                ctx.shadowBlur = selected ? 6 : 2
+                ctx.stroke()
+            }
+        }
     }
 
     Canvas {
@@ -391,7 +616,8 @@ Rectangle {
                         "heading": heading,
                         "hasHeading": hasHeading,
                         "messages": messages,
-                        "lastSeenSeconds": lastSeenSeconds
+                        "lastSeenSeconds": lastSeenSeconds,
+                        "track": track
                     }
                 }
             }
@@ -404,7 +630,7 @@ Rectangle {
         anchors.leftMargin: 16
         anchors.top: parent.top
         anchors.topMargin: 14
-        width: Math.min(parent.width - 32, titleColumn.implicitWidth + 28)
+        width: Math.min(parent.width - 32, 420)
         height: 64
         radius: 8
         color: "#081016"
@@ -415,20 +641,27 @@ Rectangle {
             id: titleColumn
             anchors.left: parent.left
             anchors.leftMargin: 14
+            anchors.right: parent.right
+            anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             spacing: 5
 
             Text {
-                text: "ADS-B 实时地图"
+                width: parent.width
+                text: "ADS-B 实时地图 · " + root.mapProvider.toUpperCase()
                 color: "#f4f8fb"
                 font.pixelSize: 17
                 font.bold: true
+                elide: Text.ElideRight
             }
 
             Text {
-                text: "OSM · z" + root.zoomLevel + " · " + root.mapLatitude.toFixed(4) + ", " + root.mapLongitude.toFixed(4)
+                width: parent.width
+                text: root.mapAttribution + " · z" + root.zoomLevel + " · "
+                      + root.mapLatitude.toFixed(4) + ", " + root.mapLongitude.toFixed(4)
                 color: "#94a7b6"
                 font.pixelSize: 12
+                elide: Text.ElideRight
             }
         }
     }
@@ -639,6 +872,30 @@ Rectangle {
             text: "等待 1090 MHz ADS-B 信号"
             color: "#c6d3dc"
             font.pixelSize: 17
+            elide: Text.ElideRight
+        }
+    }
+
+    Rectangle {
+        id: tileStatusBadge
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: attribution.top
+        anchors.bottomMargin: 8
+        width: Math.min(parent.width - 32, tileStatusText.implicitWidth + 28)
+        height: 34
+        radius: 7
+        color: "#081016"
+        border.color: "#2d3e49"
+        opacity: 0.94
+        visible: root.visibleTiles.length > 0 && root.readyTileCount === 0
+        z: 75
+
+        Text {
+            id: tileStatusText
+            anchors.centerIn: parent
+            text: "地图瓦片加载中"
+            color: "#dce8ef"
+            font.pixelSize: 12
             elide: Text.ElideRight
         }
     }

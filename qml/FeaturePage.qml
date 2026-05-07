@@ -9,6 +9,7 @@ Item {
     property string subtitle: feature ? feature.subtitle : ""
     property string iconKind: feature ? feature.icon : ""
     property color accent: feature ? feature.accent : "#4cc9f0"
+    property bool adsbShowTracks: true
 
     signal closeRequested()
     signal startRequested(string appId)
@@ -39,6 +40,14 @@ Item {
             return value.toFixed(1) + " MiB"
         }
         return (value / 1024).toFixed(2) + " GiB"
+    }
+
+    function metersText(feet) {
+        return Math.round(feet * 0.3048) + " m"
+    }
+
+    function kmhText(knots) {
+        return Math.round(knots * 1.852) + " km/h"
     }
 
     function durationText(seconds) {
@@ -111,6 +120,12 @@ Item {
     function commitRecordOutputPath() {
         recordReceiver.setOutputFilePath(recordPathInput.text)
         recordPathInput.text = recordReceiver.outputFilePath
+    }
+
+    function focusAircraft(aircraft) {
+        if (visualLoader.item && visualLoader.item.focusAircraft) {
+            visualLoader.item.focusAircraft(aircraft)
+        }
     }
 
     Connections {
@@ -1359,12 +1374,66 @@ Item {
                 }
             }
 
+            Item {
+                id: trackToggleRow
+                anchors.left: panelTitle.left
+                anchors.right: panelTitle.right
+                anchors.top: metricsColumn.bottom
+                anchors.topMargin: 18
+                height: 24
+                visible: root.appId === "adsb"
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.right: trackSwitch.left
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "航迹"
+                    color: "#8d9daa"
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    id: trackSwitch
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 46
+                    height: 24
+                    radius: 12
+                    color: root.adsbShowTracks ? root.accent : "#27313a"
+                    border.color: root.adsbShowTracks ? root.accent : "#33444f"
+
+                    Rectangle {
+                        width: 20
+                        height: 20
+                        radius: 10
+                        x: root.adsbShowTracks ? parent.width - width - 2 : 2
+                        y: 2
+                        color: "#eef6fb"
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: 120
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.adsbShowTracks = !root.adsbShowTracks
+                    }
+                }
+            }
+
             Text {
                 id: aircraftListTitle
                 anchors.left: panelTitle.left
                 anchors.right: panelTitle.right
-                anchors.top: metricsColumn.bottom
-                anchors.topMargin: 20
+                anchors.top: trackToggleRow.bottom
+                anchors.topMargin: 16
                 visible: root.appId === "adsb"
                 text: "航班信息"
                 color: "#f3f6f8"
@@ -1386,11 +1455,30 @@ Item {
                 clip: true
 
                 delegate: Rectangle {
+                    id: aircraftRow
+
+                    property var aircraftInfo: ({
+                        "icao": icao,
+                        "callsign": callsign,
+                        "altitude": altitude,
+                        "hasAltitude": hasAltitude,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "hasPosition": hasPosition,
+                        "speed": speed,
+                        "hasSpeed": hasSpeed,
+                        "heading": heading,
+                        "hasHeading": hasHeading,
+                        "messages": messages,
+                        "lastSeenSeconds": lastSeenSeconds,
+                        "track": track
+                    })
+
                     width: aircraftList.width
                     height: 68
                     radius: 8
-                    color: "#0b0f13"
-                    border.color: "#27313a"
+                    color: aircraftRowMouse.containsMouse || aircraftList.currentIndex === index ? "#101820" : "#0b0f13"
+                    border.color: aircraftList.currentIndex === index ? root.accent : "#27313a"
 
                     Text {
                         id: flightTitle
@@ -1412,7 +1500,7 @@ Item {
                         anchors.right: parent.right
                         anchors.rightMargin: 12
                         anchors.verticalCenter: flightTitle.verticalCenter
-                        text: lastSeenSeconds + "s"
+                        text: lastSeenSeconds + " 秒前"
                         color: "#7f93a2"
                         font.pixelSize: 11
                     }
@@ -1423,8 +1511,8 @@ Item {
                         anchors.rightMargin: 12
                         anchors.top: flightTitle.bottom
                         anchors.topMargin: 7
-                        text: (hasAltitude ? altitude + " ft" : "高度未知")
-                              + " · " + (hasSpeed ? Math.round(speed) + " kt" : "速度未知")
+                        text: (hasAltitude ? root.metersText(altitude) : "高度未知")
+                              + " · " + (hasSpeed ? root.kmhText(speed) : "速度未知")
                               + " · " + (hasHeading ? Math.round(heading) + "°" : "航向未知")
                         color: "#a8bac6"
                         font.pixelSize: 12
@@ -1442,6 +1530,17 @@ Item {
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
+
+                    MouseArea {
+                        id: aircraftRowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            aircraftList.currentIndex = index
+                            root.focusAircraft(aircraftRow.aircraftInfo)
+                        }
+                    }
                 }
             }
         }
@@ -1455,6 +1554,7 @@ Item {
             aircraftCount: adsbReceiver.aircraftCount
             centerLatitude: adsbReceiver.mapCenterLatitude
             centerLongitude: adsbReceiver.mapCenterLongitude
+            showTracks: root.adsbShowTracks
         }
     }
 

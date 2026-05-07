@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QDateTime>
 #include <QHash>
+#include <QVariantList>
 #include <QVector>
 
 class AdsbAircraftModel : public QAbstractListModel
@@ -23,7 +24,8 @@ public:
         HeadingRole,
         HasHeadingRole,
         MessagesRole,
-        LastSeenSecondsRole
+        LastSeenSecondsRole,
+        TrackRole
     };
 
     explicit AdsbAircraftModel(QObject *parent = nullptr);
@@ -54,8 +56,10 @@ private:
         bool hasHeading = false;
         int messages = 0;
         qint64 lastSeenMs = 0;
+        QVariantList track;
     };
 
+    static void appendTrackPoint(AircraftItem *item);
     QVariant valueForRole(const AircraftItem &item, int role) const;
     QVariantMap toMap(const AircraftItem &item) const;
 

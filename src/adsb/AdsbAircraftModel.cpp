@@ -1,5 +1,6 @@
 #include "AdsbAircraftModel.h"
 
+#include <QtGlobal>
 #include <algorithm>
 
 AdsbAircraftModel::AdsbAircraftModel(QObject *parent)
@@ -41,6 +42,7 @@ QHash<int, QByteArray> AdsbAircraftModel::roleNames() const
         {HasHeadingRole, "hasHeading"},
         {MessagesRole, "messages"},
         {LastSeenSecondsRole, "lastSeenSeconds"},
+        {TrackRole, "track"},
     };
 }
 
@@ -77,35 +79,43 @@ void AdsbAircraftModel::updateAircraft(const QVariantMap &aircraft)
         return;
     }
 
-    const auto readItem = [&]() {
-        AircraftItem item;
+    const bool hasPosition = aircraft.value(QStringLiteral("hasPosition")).toBool();
+    const double latitude = aircraft.value(QStringLiteral("latitude")).toDouble();
+    const double longitude = aircraft.value(QStringLiteral("longitude")).toDouble();
+
+    const auto applyItem = [&](AircraftItem &item) {
         item.icao = icao;
         item.callsign = aircraft.value(QStringLiteral("callsign")).toString().trimmed();
         item.altitude = aircraft.value(QStringLiteral("altitude")).toInt();
         item.hasAltitude = aircraft.value(QStringLiteral("hasAltitude")).toBool();
-        item.latitude = aircraft.value(QStringLiteral("latitude")).toDouble();
-        item.longitude = aircraft.value(QStringLiteral("longitude")).toDouble();
-        item.hasPosition = aircraft.value(QStringLiteral("hasPosition")).toBool();
+        item.latitude = latitude;
+        item.longitude = longitude;
+        item.hasPosition = hasPosition;
         item.speed = aircraft.value(QStringLiteral("speed")).toDouble();
         item.hasSpeed = aircraft.value(QStringLiteral("hasSpeed")).toBool();
         item.heading = aircraft.value(QStringLiteral("heading")).toDouble();
         item.hasHeading = aircraft.value(QStringLiteral("hasHeading")).toBool();
         item.messages = aircraft.value(QStringLiteral("messages")).toInt();
         item.lastSeenMs = aircraft.value(QStringLiteral("lastSeenMs")).toLongLong();
-        return item;
+
+        if (item.hasPosition) {
+            appendTrackPoint(&item);
+        }
     };
 
     if (!m_indexByIcao.contains(icao)) {
+        AircraftItem item;
+        applyItem(item);
         const int row = m_items.size();
         beginInsertRows(QModelIndex(), row, row);
         m_indexByIcao.insert(icao, row);
-        m_items.push_back(readItem());
+        m_items.push_back(item);
         endInsertRows();
         return;
     }
 
     const int row = m_indexByIcao.value(icao);
-    m_items[row] = readItem();
+    applyItem(m_items[row]);
     const QModelIndex changed = index(row, 0);
     emit dataChanged(changed, changed);
 }
@@ -167,6 +177,8 @@ QVariant AdsbAircraftModel::valueForRole(const AircraftItem &item, int role) con
         return item.messages;
     case LastSeenSecondsRole:
         return qMax<qint64>(0, (QDateTime::currentMSecsSinceEpoch() - item.lastSeenMs) / 1000);
+    case TrackRole:
+        return item.track;
     default:
         return {};
     }
@@ -180,4 +192,31 @@ QVariantMap AdsbAircraftModel::toMap(const AircraftItem &item) const
         map.insert(QString::fromLatin1(it.value()), valueForRole(item, it.key()));
     }
     return map;
+}
+
+void AdsbAircraftModel::appendTrackPoint(AircraftItem *item)
+{
+    if (!item || !item->hasPosition) {
+        return;
+    }
+
+    const QVariantMap point {
+        {QStringLiteral("latitude"), item->latitude},
+        {QStringLiteral("longitude"), item->longitude},
+    };
+
+    if (!item->track.isEmpty()) {
+        const QVariant lastValue = item->track.constLast();
+        const QVariantMap lastPoint = lastValue.toMap();
+        const double lastLatitude = lastPoint.value(QStringLiteral("latitude")).toDouble();
+        const double lastLongitude = lastPoint.value(QStringLiteral("longitude")).toDouble();
+        if (qAbs(lastLatitude - item->latitude) < 0.00005 && qAbs(lastLongitude - item->longitude) < 0.00005) {
+            return;
+        }
+    }
+
+    item->track.push_back(point);
+    if (item->track.size() > 180) {
+        item->track.removeFirst();
+    }
 }
