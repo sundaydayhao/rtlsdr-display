@@ -853,7 +853,7 @@ bool appendGenericRkeRaw(const QList<BitRow> &rows,
 {
     const BitRow *best = nullptr;
     for (const BitRow &row : rows) {
-        if (row.bits.size() < 48 || row.bits.size() > 80) {
+        if (row.bits.size() < 32 || row.bits.size() > 80) {
             continue;
         }
         if (best == nullptr || row.repeats > best->repeats || row.bits.size() > best->bits.size()) {
@@ -882,6 +882,65 @@ bool appendGenericRkeRaw(const QList<BitRow> &rows,
     finishEvent(&event);
     event.insert(QStringLiteral("summary"),
                  QStringLiteral("RKE-like %1 bit / raw %2").arg(best->bits.size()).arg(best->raw));
+    events->append(event);
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toyota / Subaru RKE 遥控钥匙
+// 支持多种车型：短脉冲 300–450 µs，长脉冲 600–840 µs
+// 帧长 40 / 48 / 56 bit（含滚动码，raw 输出）
+// 参考：rtl_433 Toyota-COROLLA14 decoder
+// ─────────────────────────────────────────────────────────────────────────────
+bool appendToyotaRemote(const QList<BitRow> &rows,
+                        int expectedBits,
+                        QList<QVariantMap> *events,
+                        double frequencyHz,
+                        double signalLevel)
+{
+    const BitRow *best = nullptr;
+    for (const BitRow &row : rows) {
+        if (row.bits.size() != expectedBits) {
+            continue;
+        }
+        // 排除全 0 / 全 1 噪声帧
+        const QVector<int> b = bytesForBits(row.bits);
+        bool allSame = true;
+        for (int i = 1; i < b.size(); ++i) {
+            if (b[i] != b[0]) {
+                allSame = false;
+                break;
+            }
+        }
+        if (allSame && (b[0] == 0x00 || b[0] == 0xff)) {
+            continue;
+        }
+        if (best == nullptr || row.repeats > best->repeats) {
+            best = &row;
+        }
+    }
+    if (best == nullptr) {
+        return false;
+    }
+
+    QVariantMap event = eventBase(QStringLiteral("Toyota-CarRemote"),
+                                  QStringLiteral("OOK PWM Toyota/Subaru RKE"),
+                                  *best,
+                                  frequencyHz,
+                                  signalLevel);
+    event.insert(QStringLiteral("deviceId"), QString());
+    event.insert(QStringLiteral("channel"), QString());
+    event.insert(QStringLiteral("hasBattery"), false);
+    event.insert(QStringLiteral("batteryOk"), false);
+    event.insert(QStringLiteral("hasTemperature"), false);
+    event.insert(QStringLiteral("temperatureC"), 0.0);
+    event.insert(QStringLiteral("hasHumidity"), false);
+    event.insert(QStringLiteral("humidity"), 0);
+    finishEvent(&event);
+    event.insert(QStringLiteral("summary"),
+                 QStringLiteral("丰田/速霸陆 %1 bit 滚动码 / raw %2")
+                     .arg(expectedBits)
+                     .arg(best->raw));
     events->append(event);
     return true;
 }
@@ -1210,6 +1269,15 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
         decodedRke = appendAudiovoxRemote(audiovoxFrames, &events, frequencyHz, signalLevel);
     }
 
+    // Toyota / Subaru RKE：覆盖 Corolla 2014+（383/766 µs, 56 bit）及旧款（40/48 bit）
+    const QList<BitRow> toyotaRows = pwmRows(pulses, 300, 820, 3000);
+    if (!decodedRke) {
+        decodedRke =
+            appendToyotaRemote(fixedWidthRows(toyotaRows, 56), 56, &events, frequencyHz, signalLevel)
+            || appendToyotaRemote(fixedWidthRows(toyotaRows, 48), 48, &events, frequencyHz, signalLevel)
+            || appendToyotaRemote(fixedWidthRows(toyotaRows, 40), 40, &events, frequencyHz, signalLevel);
+    }
+
     const QList<BitRow> genericRemoteRows = pwmRows(pulses, 464, 1404, 1800);
     if (!decodedRke) {
         appendSecurityPwm(genericRemoteRows,
@@ -1248,7 +1316,7 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
             || appendGenericPwmRaw(keruiRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(chuangoRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendBestRepeatedWindow(hcs200Rows,
-                                        QList<int>{66, 67, 64, 96, 128},
+                                        QList<int>{56, 40, 66, 67, 64, 96, 128},
                                         &events,
                                         QStringLiteral("OOK PWM RKE/KeeLoq-like"),
                                         frequencyHz,
