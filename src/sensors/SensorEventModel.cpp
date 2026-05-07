@@ -48,6 +48,14 @@ QHash<int, QByteArray> SensorEventModel::roleNames() const
         {FrequencyMHzRole, "frequencyMHz"},
         {EventCountRole, "eventCount"},
         {LastSeenSecondsRole, "lastSeenSeconds"},
+        {CategoryRole, "category"},
+        {PressureKPaRole, "pressureKPa"},
+        {PressurePSIRole, "pressurePSI"},
+        {PressureBarRole, "pressureBar"},
+        {LowPressureRole, "lowPressure"},
+        {MeterConsumptionRole, "meterConsumption"},
+        {MeterUnitRole, "meterUnit"},
+        {MeterTypeNameRole, "meterTypeName"},
     };
 }
 
@@ -170,6 +178,14 @@ SensorEventModel::SensorEventItem SensorEventModel::itemFromMap(const QVariantMa
     item.signalLevel = event.value(QStringLiteral("signalLevel"), item.signalLevel).toDouble();
     item.frequencyHz = event.value(QStringLiteral("frequencyHz"), item.frequencyHz).toDouble();
     item.lastSeenMs = event.value(QStringLiteral("lastSeenMs"), QDateTime::currentMSecsSinceEpoch()).toLongLong();
+    item.category = event.value(QStringLiteral("category"), item.category).toString();
+    item.pressureKPa = event.value(QStringLiteral("pressureKPa"), item.pressureKPa).toDouble();
+    item.pressurePSI = event.value(QStringLiteral("pressurePSI"), item.pressurePSI).toDouble();
+    item.pressureBar = event.value(QStringLiteral("pressureBar"), item.pressureBar).toDouble();
+    item.lowPressure = event.value(QStringLiteral("lowPressure"), item.lowPressure).toBool();
+    item.meterConsumption = event.value(QStringLiteral("meterConsumption"), item.meterConsumption).toDouble();
+    item.meterUnit = event.value(QStringLiteral("meterUnit"), item.meterUnit).toString();
+    item.meterTypeName = event.value(QStringLiteral("meterTypeName"), item.meterTypeName).toString();
     return item;
 }
 
@@ -212,6 +228,22 @@ QVariant SensorEventModel::valueForRole(const SensorEventItem &item, int role) c
         return item.eventCount;
     case LastSeenSecondsRole:
         return qMax<qint64>(0, (QDateTime::currentMSecsSinceEpoch() - item.lastSeenMs) / 1000);
+    case CategoryRole:
+        return item.category;
+    case PressureKPaRole:
+        return item.pressureKPa;
+    case PressurePSIRole:
+        return item.pressurePSI;
+    case PressureBarRole:
+        return item.pressureBar;
+    case LowPressureRole:
+        return item.lowPressure;
+    case MeterConsumptionRole:
+        return item.meterConsumption;
+    case MeterUnitRole:
+        return item.meterUnit;
+    case MeterTypeNameRole:
+        return item.meterTypeName;
     default:
         return {};
     }

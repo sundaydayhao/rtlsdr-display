@@ -1,4 +1,5 @@
 #include "SensorDecoder.h"
+#include "TpmsDecoder.h"
 
 #include <QDateTime>
 #include <QStringList>
@@ -1045,6 +1046,91 @@ bool appendGeneric(const QList<BitRow> &rows,
     events->append(event);
     return true;
 }
+
+bool appendTpmsFromRows(const QList<BitRow> &rows,
+                        QList<QVariantMap> *events,
+                        double frequencyHz,
+                        double signalLevel)
+{
+    TpmsDecoder decoder;
+
+    for (const BitRow &row : rows) {
+        if (row.bits.size() < 48 || row.bits.size() > 128) {
+            continue;
+        }
+
+        std::vector<uint8_t> bits;
+        bits.reserve(static_cast<size_t>(row.bits.size()));
+        for (int bit : row.bits) {
+            bits.push_back(static_cast<uint8_t>(bit != 0 ? 1 : 0));
+        }
+
+        const TpmsFrame frame = decoder.decode(bits);
+        if (!frame.valid) {
+            continue;
+        }
+
+        QVariantMap event = eventBase(QStringLiteral("TPMS-%1").arg(QString::fromStdString(frame.protocol)),
+                                      QStringLiteral("433/315 MHz TPMS"),
+                                      row,
+                                      frequencyHz,
+                                      signalLevel);
+        event.insert(QStringLiteral("category"), QStringLiteral("tpms"));
+        event.insert(QStringLiteral("deviceId"),
+                     QStringLiteral("0x%1").arg(frame.sensorId, 8, 16, QLatin1Char('0')).toUpper());
+        event.insert(QStringLiteral("channel"), QString::fromStdString(frame.wheelName));
+        event.insert(QStringLiteral("hasBattery"), true);
+        event.insert(QStringLiteral("batteryOk"), !frame.batteryLow);
+        event.insert(QStringLiteral("hasTemperature"), true);
+        event.insert(QStringLiteral("temperatureC"), frame.temperatureC);
+        event.insert(QStringLiteral("hasHumidity"), false);
+        event.insert(QStringLiteral("humidity"), 0);
+        event.insert(QStringLiteral("pressureKPa"), static_cast<double>(frame.pressureKpa));
+        event.insert(QStringLiteral("pressurePSI"), static_cast<double>(frame.pressurePsi));
+        event.insert(QStringLiteral("pressureBar"), static_cast<double>(frame.pressureKpa) / 100.0);
+        event.insert(QStringLiteral("lowPressure"), frame.pressureAlert);
+        event.insert(QStringLiteral("leakAlert"), frame.leakAlert);
+        event.insert(QStringLiteral("raw"), QString::fromStdString(frame.rawHex).remove(QLatin1Char(' ')));
+        finishEvent(&event);
+        event.insert(QStringLiteral("summary"),
+                     QStringLiteral("ID %1 / %2 kPa / %3 PSI / %4 C%5")
+                         .arg(event.value(QStringLiteral("deviceId")).toString())
+                         .arg(static_cast<double>(frame.pressureKpa), 0, 'f', 1)
+                         .arg(static_cast<double>(frame.pressurePsi), 0, 'f', 1)
+                         .arg(frame.temperatureC)
+                         .arg(frame.batteryLow ? QStringLiteral(" / 电池低") : QString()));
+        events->append(event);
+        return true;
+    }
+
+    return false;
+}
+
+void applyCategoryDefaults(QList<QVariantMap> *events)
+{
+    for (QVariantMap &event : *events) {
+        if (!event.value(QStringLiteral("category")).toString().isEmpty()) {
+            continue;
+        }
+
+        const QString modelName = event.value(QStringLiteral("modelName")).toString();
+        const QString protocol = event.value(QStringLiteral("protocol")).toString();
+
+        if (modelName.contains(QStringLiteral("Car"), Qt::CaseInsensitive)
+                || modelName.contains(QStringLiteral("Remote"), Qt::CaseInsensitive)
+                || modelName.contains(QStringLiteral("RKE"), Qt::CaseInsensitive)
+                || protocol.contains(QStringLiteral("KeeLoq"), Qt::CaseInsensitive)
+                || protocol.contains(QStringLiteral("EV1527"), Qt::CaseInsensitive)
+                || protocol.contains(QStringLiteral("SC226"), Qt::CaseInsensitive)) {
+            event.insert(QStringLiteral("category"), QStringLiteral("car_key"));
+        } else if (event.value(QStringLiteral("hasTemperature")).toBool()
+                   || event.value(QStringLiteral("hasHumidity")).toBool()) {
+            event.insert(QStringLiteral("category"), QStringLiteral("sensor"));
+        } else {
+            event.insert(QStringLiteral("category"), QStringLiteral("generic"));
+        }
+    }
+}
 }
 
 QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
@@ -1154,6 +1240,16 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
                           signalLevel);
     }
 
+    const QList<BitRow> tpmsFastRows = pwmRows(pulses, 50, 100, 3000);
+    appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 56), &events, frequencyHz, signalLevel)
+        || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 64), &events, frequencyHz, signalLevel)
+        || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 72), &events, frequencyHz, signalLevel);
+
+    const QList<BitRow> tpmsMediumRows = pwmRows(pulses, 100, 200, 4000);
+    appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 56), &events, frequencyHz, signalLevel)
+        || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 64), &events, frequencyHz, signalLevel)
+        || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 72), &events, frequencyHz, signalLevel);
+
     if (events.isEmpty()) {
         appendGeneric(ppmOneTwoRows, QStringLiteral("OOK PPM 1/2 ms"), &events, frequencyHz, signalLevel)
             || appendGeneric(ppmTwoFourRows, QStringLiteral("OOK PPM 2/4 ms"), &events, frequencyHz, signalLevel)
@@ -1190,5 +1286,6 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
             || appendGenericRkeRaw(chryslerRows, QStringLiteral("OOK PWM car remote-like"), &events, frequencyHz, signalLevel);
     }
 
+    applyCategoryDefaults(&events);
     return events;
 }

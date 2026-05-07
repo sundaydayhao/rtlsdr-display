@@ -58,6 +58,13 @@ set(PROJECT_SOURCES
     src/sensors/SensorEventModel.h
     src/sensors/SensorReceiver.cpp
     src/sensors/SensorReceiver.h
+    src/sensors/TpmsDecoder.cpp
+    src/sensors/TpmsDecoder.h
+    src/sensors/CarKeyDecoder.cpp
+    src/sensors/CarKeyDecoder.h
+    src/sensors/UtilityMeterDecoder.cpp
+    src/sensors/UtilityMeterDecoder.h
+    src/sensors/SceneDecoder.h
     src/waterfall/WaterfallReceiver.cpp
     src/waterfall/WaterfallReceiver.h
     src/scanner/ScannerReceiver.cpp

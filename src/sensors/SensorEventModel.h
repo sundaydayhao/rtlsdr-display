@@ -28,7 +28,18 @@ public:
         SignalLevelRole,
         FrequencyMHzRole,
         EventCountRole,
-        LastSeenSecondsRole
+        LastSeenSecondsRole,
+        // Scene / category
+        CategoryRole,
+        // TPMS fields
+        PressureKPaRole,
+        PressurePSIRole,
+        PressureBarRole,
+        LowPressureRole,
+        // Utility meter fields
+        MeterConsumptionRole,
+        MeterUnitRole,
+        MeterTypeNameRole
     };
 
     explicit SensorEventModel(QObject *parent = nullptr);
@@ -65,6 +76,17 @@ private:
         double frequencyHz = 0.0;
         int eventCount = 0;
         qint64 lastSeenMs = 0;
+        // Scene / category
+        QString category;
+        // TPMS
+        double pressureKPa = 0.0;
+        double pressurePSI = 0.0;
+        double pressureBar = 0.0;
+        bool lowPressure = false;
+        // Utility meter
+        double meterConsumption = 0.0;
+        QString meterUnit;
+        QString meterTypeName;
     };
 
     SensorEventItem itemFromMap(const QVariantMap &event, const SensorEventItem *previous = nullptr) const;
