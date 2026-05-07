@@ -12,6 +12,8 @@ Rectangle {
     property double latestStartHz: receiver ? receiver.startFrequencyHz : 0
     property double latestStopHz:  receiver ? receiver.stopFrequencyHz  : 0
     property bool   hasLiveSpan:   false
+    property bool   hasMarker:     false
+    property double markerFrequencyHz: 0
 
     radius: 8
     color: "#090d12"
@@ -20,6 +22,9 @@ Rectangle {
 
     onWidthChanged:  heatmapCanvas.requestPaint()
     onHeightChanged: heatmapCanvas.requestPaint()
+    onAccentChanged: heatmapCanvas.requestPaint()
+    onHasMarkerChanged: heatmapCanvas.requestPaint()
+    onMarkerFrequencyHzChanged: heatmapCanvas.requestPaint()
 
     // -----------------------------------------------------------------------
     // Signal connections
@@ -34,12 +39,14 @@ Rectangle {
         onStartFrequencyHzChanged: {
             root.rows = []
             root.hasLiveSpan = false
+            root.hasMarker = false
             heatmapCanvas.requestPaint()
         }
 
         onStopFrequencyHzChanged: {
             root.rows = []
             root.hasLiveSpan = false
+            root.hasMarker = false
             heatmapCanvas.requestPaint()
         }
 
@@ -98,6 +105,38 @@ Rectangle {
             return (hz / 1000000000).toFixed(3) + " GHz"
         }
         return (hz / 1000000).toFixed(1) + " MHz"
+    }
+
+    function displayStartHz() {
+        return root.hasLiveSpan ? root.latestStartHz
+                                : (root.receiver ? root.receiver.startFrequencyHz : 0)
+    }
+
+    function displayStopHz() {
+        return root.hasLiveSpan ? root.latestStopHz
+                                : (root.receiver ? root.receiver.stopFrequencyHz : 0)
+    }
+
+    function frequencyAtX(pixelX) {
+        var startHz = root.displayStartHz()
+        var stopHz = root.displayStopHz()
+        var spanHz = stopHz - startHz
+        if (!isFinite(spanHz) || spanHz <= 0 || root.width <= 0) {
+            return startHz
+        }
+
+        var ratio = Math.max(0, Math.min(1, pixelX / root.width))
+        return startHz + spanHz * ratio
+    }
+
+    function markerPixelX() {
+        var startHz = root.displayStartHz()
+        var stopHz = root.displayStopHz()
+        var spanHz = stopHz - startHz
+        if (!isFinite(spanHz) || spanHz <= 0 || root.width <= 0) {
+            return -1
+        }
+        return (root.markerFrequencyHz - startHz) / spanHz * root.width
     }
 
     // -----------------------------------------------------------------------
@@ -200,10 +239,39 @@ Rectangle {
             ctx.fillStyle = "rgba(9, 13, 18, 0.88)"
             ctx.fillRect(0, height - footerH, width, footerH)
 
-            var dispStart = root.hasLiveSpan ? root.latestStartHz
-                                             : (root.receiver ? root.receiver.startFrequencyHz : 0)
-            var dispStop  = root.hasLiveSpan ? root.latestStopHz
-                                             : (root.receiver ? root.receiver.stopFrequencyHz  : 0)
+            var dispStart = root.displayStartHz()
+            var dispStop  = root.displayStopHz()
+
+            if (root.hasMarker) {
+                var markerX = root.markerPixelX()
+                if (markerX >= 0 && markerX <= width) {
+                    var crispX = Math.round(markerX) + 0.5
+                    var markerLabel = root.frequencyLabel(root.markerFrequencyHz)
+
+                    ctx.strokeStyle = "#eef6fb"
+                    ctx.lineWidth = 1
+                    ctx.beginPath()
+                    ctx.moveTo(crispX, plotTop)
+                    ctx.lineTo(crispX, plotTop + plotHeight)
+                    ctx.stroke()
+
+                    ctx.font = "12px sans-serif"
+                    var labelPaddingX = 9
+                    var availableLabelWidth = Math.max(32, width - 16)
+                    var labelWidth = Math.min(availableLabelWidth, Math.ceil(ctx.measureText(markerLabel).width) + labelPaddingX * 2)
+                    var labelHeight = 24
+                    var labelX = Math.max(8, Math.min(Math.max(8, width - labelWidth - 8), markerX - labelWidth / 2))
+                    var labelY = Math.max(plotTop + 8, Math.min(plotTop + plotHeight - labelHeight - 8, plotTop + 10))
+                    ctx.fillStyle = "rgba(9, 13, 18, 0.88)"
+                    ctx.fillRect(labelX, labelY, labelWidth, labelHeight)
+                    ctx.strokeStyle = String(root.accent)
+                    ctx.strokeRect(labelX + 0.5, labelY + 0.5, labelWidth - 1, labelHeight - 1)
+                    ctx.fillStyle = "#eef6fb"
+                    ctx.textBaseline = "middle"
+                    ctx.textAlign = "center"
+                    ctx.fillText(markerLabel, labelX + labelWidth / 2, labelY + labelHeight / 2, labelWidth - labelPaddingX * 2)
+                }
+            }
 
             ctx.fillStyle = "#9fb2c0"
             ctx.font = "12px sans-serif"
@@ -241,6 +309,17 @@ Rectangle {
             if (v < 0.82) return "#ffff00"
             if (v < 0.92) return "#ff8000"
             return "#ff0000"
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.CrossCursor
+
+        onClicked: {
+            root.markerFrequencyHz = root.frequencyAtX(mouse.x)
+            root.hasMarker = true
+            heatmapCanvas.requestPaint()
         }
     }
 
