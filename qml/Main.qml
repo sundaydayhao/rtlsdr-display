@@ -52,6 +52,13 @@ Window {
             "subtitle": "I/Q 基带采集与回放",
             "accent": "#ff5c8a",
             "icon": "record"
+        },
+        {
+            "id": "scanner",
+            "title": "宽带频谱扫描",
+            "subtitle": "多跳扫描 / 热力图",
+            "accent": "#a855f7",
+            "icon": "waterfall"
         }
     ]
 
@@ -198,6 +205,12 @@ Window {
                 } else {
                     recordReceiver.start()
                 }
+            } else if (appId === "scanner") {
+                if (scannerReceiver.running) {
+                    scannerReceiver.stop()
+                } else {
+                    scannerReceiver.start()
+                }
             } else {
                 appLauncher.launch(appId)
             }
@@ -232,6 +245,7 @@ Window {
                   : root.activeFeature && root.activeFeature.id === "record" ? recordReceiver.status
                   : root.activeFeature && root.activeFeature.id === "sensors" ? sensorReceiver.status
                   : root.activeFeature && root.activeFeature.id === "waterfall" ? waterfallReceiver.status
+                  : root.activeFeature && root.activeFeature.id === "scanner" ? scannerReceiver.status
                   : appLauncher.lastMessage
             color: "#c7d0d9"
             font.pixelSize: 14

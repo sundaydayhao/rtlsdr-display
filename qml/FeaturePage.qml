@@ -122,6 +122,20 @@ Item {
         recordPathInput.text = recordReceiver.outputFilePath
     }
 
+    function commitScannerRange() {
+        var startMHz = parseFloat(scannerStartInput.text)
+        var stopMHz  = parseFloat(scannerStopInput.text)
+        if (isNaN(startMHz) || isNaN(stopMHz) || startMHz >= stopMHz) {
+            scannerStartInput.text = mhzText(scannerReceiver.startFrequencyHz, 1)
+            scannerStopInput.text  = mhzText(scannerReceiver.stopFrequencyHz,  1)
+            return
+        }
+        scannerReceiver.setStartFrequencyHz(startMHz * 1000000)
+        scannerReceiver.setStopFrequencyHz(stopMHz  * 1000000)
+        scannerStartInput.text = mhzText(scannerReceiver.startFrequencyHz, 1)
+        scannerStopInput.text  = mhzText(scannerReceiver.stopFrequencyHz,  1)
+    }
+
     function focusAircraft(aircraft) {
         if (visualLoader.item && visualLoader.item.focusAircraft) {
             visualLoader.item.focusAircraft(aircraft)
@@ -249,7 +263,8 @@ Item {
                   || (root.appId === "fm" && fmReceiver.running)
                   || (root.appId === "record" && recordReceiver.running)
                   || (root.appId === "sensors" && sensorReceiver.running)
-                  || (root.appId === "waterfall" && waterfallReceiver.running) ? "停止" : "启动"
+                  || (root.appId === "waterfall" && waterfallReceiver.running)
+                  || (root.appId === "scanner" && scannerReceiver.running) ? "停止" : "启动"
             color: "#071014"
             font.pixelSize: 15
             font.bold: true
@@ -287,6 +302,7 @@ Item {
                              : root.appId === "record" ? recordComponent
                              : root.appId === "sensors" ? sensorComponent
                              : root.appId === "waterfall" ? waterfallComponent
+                             : root.appId === "scanner" ? scannerComponent
                              : receiverComponent
         }
 
@@ -314,6 +330,7 @@ Item {
                       : root.appId === "record" ? "I/Q 录制"
                       : root.appId === "sensors" ? "无线报文解码"
                       : root.appId === "waterfall" ? "瀑布图接收"
+                      : root.appId === "scanner" ? "宽带扫描"
                       : "运行配置"
                 color: "#f3f6f8"
                 font.pixelSize: 18
@@ -327,7 +344,9 @@ Item {
                 anchors.top: panelTitle.bottom
                 anchors.topMargin: 18
                 text: root.appId === "record" ? "录制状态"
-                      : root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "sensors" || root.appId === "waterfall" ? "接收状态" : "启动命令"
+                      : root.appId === "adsb" || root.appId === "am" || root.appId === "fm"
+                        || root.appId === "sensors" || root.appId === "waterfall"
+                        || root.appId === "scanner" ? "接收状态" : "启动命令"
                 color: "#8d9daa"
                 font.pixelSize: 12
             }
@@ -365,10 +384,15 @@ Item {
                         if (root.appId === "waterfall") {
                             return waterfallReceiver.status
                         }
+                        if (root.appId === "scanner") {
+                            return scannerReceiver.status
+                        }
                         var cmd = appLauncher.commandFor(root.appId)
                         return cmd.length > 0 ? cmd : "未配置"
                     }
-                    color: root.appId === "adsb" || root.appId === "am" || root.appId === "fm" || root.appId === "record" || root.appId === "sensors" || root.appId === "waterfall"
+                    color: root.appId === "adsb" || root.appId === "am" || root.appId === "fm"
+                           || root.appId === "record" || root.appId === "sensors"
+                           || root.appId === "waterfall" || root.appId === "scanner"
                            || appLauncher.commandFor(root.appId).length > 0 ? "#d8e2ea" : "#788895"
                     font.pixelSize: 13
                     wrapMode: Text.Wrap
@@ -392,6 +416,7 @@ Item {
                            : root.appId === "record" ? (recordReceiver.running ? "I/Q：录制中" : "I/Q：停止")
                            : root.appId === "sensors" ? (sensorReceiver.running ? "RTL-SDR：解码中" : "RTL-SDR：停止")
                            : root.appId === "waterfall" ? (waterfallReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
+                           : root.appId === "scanner" ? (scannerReceiver.running ? "RTL-SDR：扫描中" : "RTL-SDR：停止")
                            : "解调：SDR 后端"
                     accent: root.accent
                 }
@@ -405,6 +430,7 @@ Item {
                            : root.appId === "record" ? ("设备：" + recordReceiver.deviceCount + " 个")
                            : root.appId === "sensors" ? ("设备：" + sensorReceiver.deviceCount + " 个")
                            : root.appId === "waterfall" ? ("设备：" + waterfallReceiver.deviceCount + " 个")
+                           : root.appId === "scanner" ? ("设备：" + scannerReceiver.deviceCount + " 个")
                            : "平台：本机 / RK3566"
                     accent: "#80ed99"
                 }
@@ -1372,6 +1398,199 @@ Item {
                     label: "有效消息：" + adsbReceiver.validMessages
                     accent: "#ff5c8a"
                 }
+
+                // ---- Scanner controls ----
+                StatusPill {
+                    width: parent.width
+                    visible: root.appId === "scanner"
+                    label: "Tuner：" + scannerReceiver.tunerName
+                    accent: "#f4d35e"
+                }
+
+                StatusPill {
+                    width: parent.width
+                    visible: root.appId === "scanner"
+                    label: "采样：" + root.sampleRateText(scannerReceiver.sampleRateHz)
+                    accent: "#ff5c8a"
+                }
+
+                StatusPill {
+                    width: parent.width
+                    visible: root.appId === "scanner"
+                    label: "频点：" + scannerReceiver.totalBins + " 个"
+                    accent: "#a855f7"
+                }
+
+                Column {
+                    width: parent.width
+                    visible: root.appId === "scanner"
+                    spacing: 8
+
+                    Text {
+                        width: parent.width
+                        text: "起始频率 MHz"
+                        color: "#8d9daa"
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 40
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: scannerStartInput.activeFocus ? root.accent : "#27313a"
+
+                        TextInput {
+                            id: scannerStartInput
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.right: scannerStartUnit.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.mhzText(scannerReceiver.startFrequencyHz, 1)
+                            color: "#eef6fb"
+                            selectedTextColor: "#071014"
+                            selectionColor: root.accent
+                            font.pixelSize: 18
+                            font.bold: true
+                            selectByMouse: true
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            onAccepted: root.commitScannerRange()
+                        }
+
+                        Text {
+                            id: scannerStartUnit
+                            anchors.right: parent.right
+                            anchors.rightMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "MHz"
+                            color: "#8d9daa"
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "终止频率 MHz"
+                        color: "#8d9daa"
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 40
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: scannerStopInput.activeFocus ? root.accent : "#27313a"
+
+                        TextInput {
+                            id: scannerStopInput
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.right: scannerStopUnit.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.mhzText(scannerReceiver.stopFrequencyHz, 1)
+                            color: "#eef6fb"
+                            selectedTextColor: "#071014"
+                            selectionColor: root.accent
+                            font.pixelSize: 18
+                            font.bold: true
+                            selectByMouse: true
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            onAccepted: root.commitScannerRange()
+                        }
+
+                        Text {
+                            id: scannerStopUnit
+                            anchors.right: parent.right
+                            anchors.rightMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "MHz"
+                            color: "#8d9daa"
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Row {
+                        id: scannerBandRow
+                        width: parent.width
+                        height: 30
+                        spacing: 6
+
+                        Repeater {
+                            model: [
+                                { "label": "FM",  "start": 87.5,  "stop": 108.0 },
+                                { "label": "航空", "start": 108.0, "stop": 137.0 },
+                                { "label": "433", "start": 430.0, "stop": 440.0 }
+                            ]
+
+                            Rectangle {
+                                width: (scannerBandRow.width - scannerBandRow.spacing * 2) / 3
+                                height: scannerBandRow.height
+                                radius: 8
+                                color: scannerBandMouse.pressed ? "#29323a"
+                                     : scannerBandMouse.containsMouse ? "#222a31" : "#101419"
+                                border.color: "#313c46"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: "#d8e2ea"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    id: scannerBandMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        scannerReceiver.setStartFrequencyHz(modelData.start * 1000000)
+                                        scannerReceiver.setStopFrequencyHz(modelData.stop  * 1000000)
+                                        scannerStartInput.text = root.mhzText(scannerReceiver.startFrequencyHz, 1)
+                                        scannerStopInput.text  = root.mhzText(scannerReceiver.stopFrequencyHz,  1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 36
+                        radius: 8
+                        color: scannerApplyMouse.pressed ? Qt.darker(root.accent, 1.35)
+                             : scannerApplyMouse.containsMouse ? Qt.lighter(root.accent, 1.08)
+                             : root.accent
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "应用范围"
+                            color: "#071014"
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            id: scannerApplyMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.commitScannerRange()
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: root.mhzText(scannerReceiver.minFrequencyHz, 1)
+                              + " - " + root.mhzText(scannerReceiver.maxFrequencyHz, 1) + " MHz"
+                        color: "#788895"
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
             }
 
             Item {
@@ -1934,6 +2153,14 @@ Item {
                     elide: Text.ElideRight
                 }
             }
+        }
+    }
+
+    Component {
+        id: scannerComponent
+        HeatmapView {
+            accent: root.accent
+            receiver: scannerReceiver
         }
     }
 

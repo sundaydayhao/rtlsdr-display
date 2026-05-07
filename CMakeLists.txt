@@ -60,6 +60,8 @@ set(PROJECT_SOURCES
     src/sensors/SensorReceiver.h
     src/waterfall/WaterfallReceiver.cpp
     src/waterfall/WaterfallReceiver.h
+    src/scanner/ScannerReceiver.cpp
+    src/scanner/ScannerReceiver.h
     resources/qml.qrc
 )
 

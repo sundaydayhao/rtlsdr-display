@@ -5,6 +5,7 @@
 #include "record/RecordReceiver.h"
 #include "sensors/SensorReceiver.h"
 #include "waterfall/WaterfallReceiver.h"
+#include "scanner/ScannerReceiver.h"
 
 #include <QByteArray>
 #include <QGuiApplication>
@@ -84,6 +85,7 @@ int main(int argc, char *argv[])
     RecordReceiver recordReceiver;
     SensorReceiver sensorReceiver;
     WaterfallReceiver waterfallReceiver;
+    ScannerReceiver   scannerReceiver;
 
     PanelNetworkAccessManagerFactory networkFactory;
     QQmlApplicationEngine engine;
@@ -95,6 +97,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("recordReceiver"), &recordReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("sensorReceiver"), &sensorReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("waterfallReceiver"), &waterfallReceiver);
+    engine.rootContext()->setContextProperty(QStringLiteral("scannerReceiver"), &scannerReceiver);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
 
     if (engine.rootObjects().isEmpty()) {

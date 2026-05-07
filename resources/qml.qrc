@@ -8,5 +8,6 @@
         <file alias="SensorDecodeView.qml">../qml/SensorDecodeView.qml</file>
         <file alias="StatusPill.qml">../qml/StatusPill.qml</file>
         <file alias="WaterfallView.qml">../qml/WaterfallView.qml</file>
+        <file alias="HeatmapView.qml">../qml/HeatmapView.qml</file>
     </qresource>
 </RCC>
