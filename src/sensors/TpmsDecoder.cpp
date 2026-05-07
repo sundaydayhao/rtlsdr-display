@@ -1,4 +1,5 @@
 #include "TpmsDecoder.h"
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <cstring>
@@ -7,6 +8,89 @@
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+namespace {
+int bitCount(uint8_t value)
+{
+    int count = 0;
+    while (value != 0) {
+        count += value & 1U;
+        value = static_cast<uint8_t>(value >> 1);
+    }
+    return count;
+}
+
+bool plausibleGenericPayload(const uint8_t* bytes, size_t len)
+{
+    if (bytes == nullptr || len < 8) {
+        return false;
+    }
+
+    int oneBits = 0;
+    int extremeBytes = 0;
+    const size_t inspected = std::min<size_t>(len, 8);
+    for (size_t index = 0; index < inspected; ++index) {
+        oneBits += bitCount(bytes[index]);
+        if (bytes[index] <= 0x0F || bytes[index] >= 0xF0) {
+            ++extremeBytes;
+        }
+    }
+
+    const double oneRatio = static_cast<double>(oneBits) / static_cast<double>(inspected * 8);
+    if (oneRatio < 0.25 || oneRatio > 0.75) {
+        return false;
+    }
+    if (extremeBytes >= 3) {
+        return false;
+    }
+
+    const uint8_t pressureRaw = bytes[4];
+    const uint8_t temperatureRaw = bytes[5];
+    if (pressureRaw <= 0x03 || pressureRaw >= 0xF0) {
+        return false;
+    }
+    if (temperatureRaw >= 0xF0) {
+        return false;
+    }
+
+    return true;
+}
+
+bool fillPatternLikeRemoteWindow(const uint8_t* bytes, size_t len)
+{
+    if (bytes == nullptr || len == 0) {
+        return true;
+    }
+
+    int fillBytes = 0;
+    const size_t inspected = std::min<size_t>(len, 9);
+    for (size_t index = 0; index < inspected; ++index) {
+        if (bytes[index] <= 0x03 || bytes[index] >= 0xFD) {
+            ++fillBytes;
+        }
+    }
+
+    return fillBytes >= 3;
+}
+
+bool plausibleTpmsMeasurement(float pressureKpa, int temperatureC)
+{
+    return pressureKpa >= 90.0f
+        && pressureKpa <= 350.0f
+        && temperatureC >= -40
+        && temperatureC <= 80;
+}
+
+bool plausibleTpmsStatus(uint8_t status)
+{
+    if (status == 0xFF) {
+        return false;
+    }
+    if ((status & 0x0F) == 0x0F || (status & 0xF0) == 0xF0) {
+        return false;
+    }
+    return true;
+}
+}
 
 std::string TpmsDecoder::toHex(const uint8_t* data, size_t len)
 {
@@ -93,6 +177,7 @@ TpmsFrame TpmsDecoder::decodeSchrader(const uint8_t* bytes, size_t len)
 
     // Validate CRC
     if (!validateCrc8(bytes, 8)) return frame;
+    if (fillPatternLikeRemoteWindow(bytes, 8)) return frame;
 
     uint32_t id = (static_cast<uint32_t>(bytes[0]) << 24) |
                   (static_cast<uint32_t>(bytes[1]) << 16) |
@@ -105,6 +190,7 @@ TpmsFrame TpmsDecoder::decodeSchrader(const uint8_t* bytes, size_t len)
     uint8_t flags       = bytes[4];
     uint8_t pressureRaw = bytes[5];
     uint8_t tempRaw     = bytes[6];
+    if (!plausibleTpmsStatus(flags)) return TpmsFrame{};
 
     frame.valid         = true;
     frame.protocol      = "Schrader";
@@ -118,8 +204,7 @@ TpmsFrame TpmsDecoder::decodeSchrader(const uint8_t* bytes, size_t len)
     frame.rawHex        = toHex(bytes, len);
 
     // Sanity checks
-    if (frame.pressureKpa < 0 || frame.pressureKpa > 600) return TpmsFrame{};
-    if (frame.temperatureC < -40 || frame.temperatureC > 125) return TpmsFrame{};
+    if (!plausibleTpmsMeasurement(frame.pressureKpa, frame.temperatureC)) return TpmsFrame{};
 
     return frame;
 }
@@ -138,6 +223,7 @@ TpmsFrame TpmsDecoder::decodeContinental(const uint8_t* bytes, size_t len)
     // CRC check (CRC-8/AUTOSAR poly=0x2F)
     uint8_t calcCrc = crc8(bytes, 8, 0x2F, 0xFF);
     if (calcCrc != bytes[8]) return frame;
+    if (fillPatternLikeRemoteWindow(bytes, 9)) return frame;
 
     uint32_t id = (static_cast<uint32_t>(bytes[0]) << 24) |
                   (static_cast<uint32_t>(bytes[1]) << 16) |
@@ -149,6 +235,7 @@ TpmsFrame TpmsDecoder::decodeContinental(const uint8_t* bytes, size_t len)
     uint8_t status      = bytes[4];
     uint8_t pressureRaw = bytes[5];
     uint8_t tempRaw     = bytes[6];
+    if (!plausibleTpmsStatus(status)) return TpmsFrame{};
 
     frame.valid         = true;
     frame.protocol      = "Continental";
@@ -162,8 +249,7 @@ TpmsFrame TpmsDecoder::decodeContinental(const uint8_t* bytes, size_t len)
     frame.leakAlert     = (status & 0x01) != 0;
     frame.rawHex        = toHex(bytes, len);
 
-    if (frame.pressureKpa < 0 || frame.pressureKpa > 600) return TpmsFrame{};
-    if (frame.temperatureC < -50 || frame.temperatureC > 125) return TpmsFrame{};
+    if (!plausibleTpmsMeasurement(frame.pressureKpa, frame.temperatureC)) return TpmsFrame{};
 
     return frame;
 }
@@ -180,6 +266,7 @@ TpmsFrame TpmsDecoder::decodePacific(const uint8_t* bytes, size_t len)
     if (len < 7) return frame;
 
     if (!validateCrc8(bytes, 7)) return frame;
+    if (fillPatternLikeRemoteWindow(bytes, 7)) return frame;
 
     uint32_t id = (static_cast<uint32_t>(bytes[0]) << 16) |
                   (static_cast<uint32_t>(bytes[1]) << 8)  |
@@ -190,6 +277,7 @@ TpmsFrame TpmsDecoder::decodePacific(const uint8_t* bytes, size_t len)
     uint8_t pressureRaw = bytes[3];
     uint8_t tempRaw     = bytes[4];
     uint8_t status      = bytes[5];
+    if (!plausibleTpmsStatus(status)) return TpmsFrame{};
 
     frame.valid         = true;
     frame.protocol      = "Pacific";
@@ -201,8 +289,7 @@ TpmsFrame TpmsDecoder::decodePacific(const uint8_t* bytes, size_t len)
     frame.pressureAlert = (status & 0x40) != 0;
     frame.rawHex        = toHex(bytes, len);
 
-    if (frame.pressureKpa < 0 || frame.pressureKpa > 600) return TpmsFrame{};
-    if (frame.temperatureC < -40 || frame.temperatureC > 125) return TpmsFrame{};
+    if (!plausibleTpmsMeasurement(frame.pressureKpa, frame.temperatureC)) return TpmsFrame{};
 
     return frame;
 }
@@ -214,7 +301,7 @@ TpmsFrame TpmsDecoder::decodePacific(const uint8_t* bytes, size_t len)
 TpmsFrame TpmsDecoder::decodeGeneric(const uint8_t* bytes, size_t len)
 {
     TpmsFrame frame;
-    if (len < 6) return frame;
+    if (!plausibleGenericPayload(bytes, len)) return frame;
 
     uint32_t id = (static_cast<uint32_t>(bytes[0]) << 24) |
                   (static_cast<uint32_t>(bytes[1]) << 16) |
@@ -231,8 +318,7 @@ TpmsFrame TpmsDecoder::decodeGeneric(const uint8_t* bytes, size_t len)
     int   tempC       = static_cast<int>(tempRaw) - 40;
 
     // Sanity check
-    if (pressureKpa < 50 || pressureKpa > 500) return frame;
-    if (tempC < -40 || tempC > 125) return frame;
+    if (!plausibleTpmsMeasurement(pressureKpa, tempC)) return frame;
 
     frame.valid        = true;
     frame.protocol     = "Generic TPMS";

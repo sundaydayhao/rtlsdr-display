@@ -60,7 +60,6 @@ set(PROJECT_SOURCES
     src/sensors/SensorReceiver.h
     src/sensors/TpmsDecoder.cpp
     src/sensors/TpmsDecoder.h
-    src/sensors/CarKeyDecoder.cpp
     src/sensors/CarKeyDecoder.h
     src/sensors/UtilityMeterDecoder.cpp
     src/sensors/UtilityMeterDecoder.h

@@ -1069,6 +1069,9 @@ bool appendTpmsFromRows(const QList<BitRow> &rows,
         if (!frame.valid) {
             continue;
         }
+        if (frame.protocol == "Generic TPMS") {
+            continue;
+        }
 
         QVariantMap event = eventBase(QStringLiteral("TPMS-%1").arg(QString::fromStdString(frame.protocol)),
                                       QStringLiteral("433/315 MHz TPMS"),
@@ -1240,20 +1243,8 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
                           signalLevel);
     }
 
-    const QList<BitRow> tpmsFastRows = pwmRows(pulses, 50, 100, 3000);
-    appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 56), &events, frequencyHz, signalLevel)
-        || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 64), &events, frequencyHz, signalLevel)
-        || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 72), &events, frequencyHz, signalLevel);
-
-    const QList<BitRow> tpmsMediumRows = pwmRows(pulses, 100, 200, 4000);
-    appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 56), &events, frequencyHz, signalLevel)
-        || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 64), &events, frequencyHz, signalLevel)
-        || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 72), &events, frequencyHz, signalLevel);
-
     if (events.isEmpty()) {
-        appendGeneric(ppmOneTwoRows, QStringLiteral("OOK PPM 1/2 ms"), &events, frequencyHz, signalLevel)
-            || appendGeneric(ppmTwoFourRows, QStringLiteral("OOK PPM 2/4 ms"), &events, frequencyHz, signalLevel)
-            || appendGenericPwmRaw(genericRemoteRows, QStringLiteral("OOK PWM EV1527/SC226x"), &events, frequencyHz, signalLevel)
+        appendGenericPwmRaw(genericRemoteRows, QStringLiteral("OOK PWM EV1527/SC226x"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(keruiRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(chuangoRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendBestRepeatedWindow(hcs200Rows,
@@ -1284,6 +1275,22 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
             || appendGenericRkeRaw(hcs361Sync833Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs361NoSync1667Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(chryslerRows, QStringLiteral("OOK PWM car remote-like"), &events, frequencyHz, signalLevel);
+    }
+
+    const QList<BitRow> tpmsFastRows = pwmRows(pulses, 50, 100, 3000);
+    const QList<BitRow> tpmsMediumRows = pwmRows(pulses, 100, 200, 4000);
+    if (events.isEmpty()) {
+        appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 56), &events, frequencyHz, signalLevel)
+            || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 64), &events, frequencyHz, signalLevel)
+            || appendTpmsFromRows(fixedWidthRows(tpmsFastRows, 72), &events, frequencyHz, signalLevel)
+            || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 56), &events, frequencyHz, signalLevel)
+            || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 64), &events, frequencyHz, signalLevel)
+            || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 72), &events, frequencyHz, signalLevel);
+    }
+
+    if (events.isEmpty()) {
+        appendGeneric(ppmOneTwoRows, QStringLiteral("OOK PPM 1/2 ms"), &events, frequencyHz, signalLevel)
+            || appendGeneric(ppmTwoFourRows, QStringLiteral("OOK PPM 2/4 ms"), &events, frequencyHz, signalLevel);
     }
 
     applyCategoryDefaults(&events);
