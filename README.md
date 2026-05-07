@@ -147,6 +147,9 @@ make -j$(nproc)
 sudo apt update
 sudo apt install -y build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev librtlsdr-dev libusb-1.0-0-dev
 
+cd ~/rtlsdr
+unset CMAKE_TOOLCHAIN_FILE RPI_BUILDROOT_HOST
+rm -rf build
 mkdir build && cd build
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
@@ -154,7 +157,7 @@ cmake .. \
 cmake --build . -j$(nproc)
 ```
 
-如果之前在同一个 `build` 目录里配置过交叉编译工具链，请先删除该目录，或至少删除 `build/CMakeCache.txt` 后重新运行 CMake。
+如果之前在同一个 `build` 目录里配置过交叉编译工具链，CMake 会继续从缓存读取 `CMAKE_TOOLCHAIN_FILE`，即使新的命令没有再指定它。因此树莓派本机构建前建议直接删除整个 `build` 目录。
 
 ### 交叉编译（树莓派）
 

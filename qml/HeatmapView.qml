@@ -42,7 +42,7 @@ Rectangle {
     Connections {
         target: root.receiver
 
-        onScanLineReady: {
+        function onScanLineReady(powers, startHz, stopHz) {
             root.pushLine(powers, startHz, stopHz)
         }
 
