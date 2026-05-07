@@ -143,6 +143,8 @@ make -j$(nproc)
 
 在树莓派系统上直接编译时，不要指定 `CMAKE_TOOLCHAIN_FILE`。`cmake/raspberrypi-buildroot-toolchain.cmake.example` 只用于在 PC/服务器上通过 Buildroot 交叉编译树莓派程序。
 
+默认会优先使用 Qt6；如果系统只安装 Qt5，或需要强制使用 Qt5，请在 CMake 命令中增加 `-DRTLSDR_PANEL_QT_MAJOR=5`。
+
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev librtlsdr-dev libusb-1.0-0-dev
@@ -154,6 +156,18 @@ mkdir build && cd build
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DRTLSDR_PANEL_TARGET=raspberrypi
+cmake --build . -j$(nproc)
+```
+
+Qt5 版本依赖示例：
+
+```bash
+sudo apt install -y build-essential cmake pkg-config qtbase5-dev qtdeclarative5-dev qml-module-qtquick2 qml-module-qtquick-window2 librtlsdr-dev libusb-1.0-0-dev
+
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRTLSDR_PANEL_TARGET=raspberrypi \
+  -DRTLSDR_PANEL_QT_MAJOR=5
 cmake --build . -j$(nproc)
 ```
 

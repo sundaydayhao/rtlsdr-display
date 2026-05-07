@@ -10,6 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+set(RTLSDR_PANEL_QT_MAJOR "auto" CACHE STRING "Qt major version: auto, 5, 6")
+set_property(CACHE RTLSDR_PANEL_QT_MAJOR PROPERTY STRINGS auto 5 6)
+
 set(RTLSDR_PANEL_TARGET "auto" CACHE STRING "Target platform: auto, desktop, rk3566, raspberrypi")
 set_property(CACHE RTLSDR_PANEL_TARGET PROPERTY STRINGS auto desktop rk3566 raspberrypi)
 
@@ -26,8 +29,19 @@ endif()
 
 message(STATUS "RTL-SDR panel target: ${RTLSDR_PANEL_TARGET}")
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Network Quick)
+if(RTLSDR_PANEL_QT_MAJOR STREQUAL "5")
+    set(RTLSDR_PANEL_QT_CANDIDATES Qt5)
+elseif(RTLSDR_PANEL_QT_MAJOR STREQUAL "6")
+    set(RTLSDR_PANEL_QT_CANDIDATES Qt6)
+elseif(RTLSDR_PANEL_QT_MAJOR STREQUAL "auto")
+    set(RTLSDR_PANEL_QT_CANDIDATES Qt6 Qt5)
+else()
+    message(FATAL_ERROR "Unsupported RTLSDR_PANEL_QT_MAJOR: ${RTLSDR_PANEL_QT_MAJOR}. Use auto, 5, or 6.")
+endif()
+
+find_package(QT NAMES ${RTLSDR_PANEL_QT_CANDIDATES} REQUIRED COMPONENTS Core Gui Network Quick)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Network Quick)
+message(STATUS "RTL-SDR panel Qt version: Qt ${QT_VERSION_MAJOR}")
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(RTLSDR QUIET IMPORTED_TARGET librtlsdr)
