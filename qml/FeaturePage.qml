@@ -10,6 +10,7 @@ Item {
     property string iconKind: feature ? feature.icon : ""
     property color accent: feature ? feature.accent : "#4cc9f0"
     property bool adsbShowTracks: true
+    property bool recordPlaybackMode: false
 
     signal closeRequested()
     signal startRequested(string appId)
@@ -261,7 +262,8 @@ Item {
             text: (root.appId === "adsb" && adsbReceiver.running)
                   || (root.appId === "am" && amReceiver.running)
                   || (root.appId === "fm" && fmReceiver.running)
-                  || (root.appId === "record" && recordReceiver.running)
+                  || (root.appId === "record" && !root.recordPlaybackMode && recordReceiver.running)
+                  || (root.appId === "record" && root.recordPlaybackMode && recordReceiver.playbackRunning)
                   || (root.appId === "sensors" && sensorReceiver.running)
                   || (root.appId === "waterfall" && waterfallReceiver.running)
                   || (root.appId === "scanner" && scannerReceiver.running) ? "停止" : "启动"
@@ -275,7 +277,17 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.startRequested(root.appId)
+            onClicked: {
+                if (root.appId === "record" && root.recordPlaybackMode) {
+                    if (recordReceiver.playbackRunning) {
+                        recordReceiver.stopPlayback()
+                    } else {
+                        recordReceiver.startPlayback()
+                    }
+                } else {
+                    root.startRequested(root.appId)
+                }
+            }
         }
     }
 
@@ -846,9 +858,71 @@ Item {
                     visible: root.appId === "record"
                     spacing: 6
 
+                    // 录制 / 回放 模式切换
+                    Row {
+                        id: recordModeRow
+                        width: parent.width
+                        height: 32
+                        spacing: 8
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: 8
+                            color: !root.recordPlaybackMode ? root.accent
+                                 : recModeMouse1.pressed ? "#29323a"
+                                 : recModeMouse1.containsMouse ? "#222a31" : "#101419"
+                            border.color: !root.recordPlaybackMode ? root.accent : "#313c46"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "录制"
+                                color: !root.recordPlaybackMode ? "#071014" : "#d8e2ea"
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                id: recModeMouse1
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.recordPlaybackMode = false
+                            }
+                        }
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: 8
+                            color: root.recordPlaybackMode ? root.accent
+                                 : recModeMouse2.pressed ? "#29323a"
+                                 : recModeMouse2.containsMouse ? "#222a31" : "#101419"
+                            border.color: root.recordPlaybackMode ? root.accent : "#313c46"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "回放"
+                                color: root.recordPlaybackMode ? "#071014" : "#d8e2ea"
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                id: recModeMouse2
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.recordPlaybackMode = true
+                            }
+                        }
+                    }
+
+                    // ---- 录制控件（录制模式）----
                     Rectangle {
                         width: parent.width
                         height: 40
+                        visible: !root.recordPlaybackMode
                         radius: 8
                         color: "#0b0f13"
                         border.color: recordFrequencyInput.activeFocus ? root.accent : "#27313a"
@@ -1010,6 +1084,7 @@ Item {
                         id: recordPathButtonRow
                         width: parent.width
                         height: 30
+                        visible: !root.recordPlaybackMode
                         spacing: 8
 
                         Rectangle {
@@ -1062,6 +1137,110 @@ Item {
                                 }
                             }
                         }
+                    }
+
+                    // ---- 回放控件（回放模式）----
+                    Text {
+                        width: parent.width
+                        visible: root.recordPlaybackMode
+                        text: "回放文件路径"
+                        color: "#8d9daa"
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 56
+                        visible: root.recordPlaybackMode
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: playbackFileInput.activeFocus ? root.accent : "#27313a"
+
+                        TextInput {
+                            id: playbackFileInput
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            text: recordReceiver.playbackFilePath
+                            color: "#d8e2ea"
+                            selectedTextColor: "#071014"
+                            selectionColor: root.accent
+                            font.pixelSize: 12
+                            selectByMouse: true
+                            clip: true
+                            onAccepted: recordReceiver.setPlaybackFilePath(text)
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 30
+                        visible: root.recordPlaybackMode
+                        radius: 8
+                        color: applyPlaybackMouse.pressed ? "#29323a"
+                             : applyPlaybackMouse.containsMouse ? "#222a31" : "#101419"
+                        border.color: "#313c46"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "应用文件路径"
+                            color: "#d8e2ea"
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            id: applyPlaybackMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: recordReceiver.setPlaybackFilePath(playbackFileInput.text)
+                        }
+                    }
+
+                    // 回放进度条
+                    Rectangle {
+                        width: parent.width
+                        height: 32
+                        visible: root.recordPlaybackMode
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: "#27313a"
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 3
+                            width: Math.max(8, (parent.width - 6) * recordReceiver.playbackProgress)
+                            radius: 6
+                            color: root.accent
+                            opacity: 0.86
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: recordReceiver.playbackRunning
+                                  ? (Math.round(recordReceiver.playbackProgress * 100) + "% · "
+                                     + root.durationText(recordReceiver.playbackElapsedSeconds)
+                                     + " / " + root.durationText(recordReceiver.playbackDurationSeconds))
+                                  : "回放进度"
+                            color: "#e6edf3"
+                            font.pixelSize: 12
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    // 回放文件信息
+                    Text {
+                        width: parent.width
+                        visible: root.recordPlaybackMode && recordReceiver.playbackDurationSeconds > 0
+                        text: root.mhzText(recordReceiver.playbackCenterFrequencyHz, 3)
+                              + " MHz · " + root.sampleRateText(recordReceiver.playbackSampleRateHz)
+                              + " · " + root.durationText(recordReceiver.playbackDurationSeconds)
+                        color: "#788895"
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
                     }
                 }
 
@@ -1999,159 +2178,187 @@ Item {
 
     Component {
         id: recordComponent
-        Rectangle {
-            color: "#0f1418"
-            radius: 8
-            border.color: "#2b3640"
+        Item {
+            // 回放代理：将 recordReceiver 的回放属性/信号包装为 WaterfallView 所需接口
+            QtObject {
+                id: playbackProxy
+                property bool   running:           recordReceiver.playbackRunning
+                property double centerFrequencyHz: recordReceiver.playbackCenterFrequencyHz
+                property double sampleRateHz:      recordReceiver.playbackSampleRateHz
+                property int    fftSize:           recordReceiver.fftSize
+                signal spectrumReady(var levels, double leftFrequencyHz, double rightFrequencyHz)
+            }
 
-            Column {
-                anchors.centerIn: parent
-                width: Math.min(parent.width - 72, 760)
-                spacing: 20
+            Connections {
+                target: recordReceiver
+                onSpectrumReady: playbackProxy.spectrumReady(levels, leftFrequencyHz, rightFrequencyHz)
+            }
 
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.mhzText(recordReceiver.centerFrequencyHz, 3) + " MHz"
-                    color: "#f6f8fb"
-                    font.pixelSize: 52
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
+            // ---- 录制统计视图（录制模式）----
+            Rectangle {
+                anchors.fill: parent
+                visible: !root.recordPlaybackMode
+                color: "#0f1418"
+                radius: 8
+                border.color: "#2b3640"
 
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: "u8 I/Q / " + root.sampleRateText(recordReceiver.sampleRateHz) + " / " + (recordReceiver.running ? "录制中" : "停止")
-                    color: recordReceiver.running ? root.accent : "#8fa0ad"
-                    font.pixelSize: 17
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Row {
-                    width: parent.width
-                    height: 64
-                    spacing: 18
-
-                    Column {
-                        width: (parent.width - parent.spacing * 2) / 3
-                        height: parent.height
-                        spacing: 8
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: "文件大小"
-                            color: "#8293a0"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: root.bytesText(recordReceiver.bytesWritten)
-                            color: "#eef6fb"
-                            font.pixelSize: 24
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Column {
-                        width: (parent.width - parent.spacing * 2) / 3
-                        height: parent.height
-                        spacing: 8
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: "录制时长"
-                            color: "#8293a0"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: root.durationText(recordReceiver.elapsedSeconds)
-                            color: "#eef6fb"
-                            font.pixelSize: 24
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Column {
-                        width: (parent.width - parent.spacing * 2) / 3
-                        height: parent.height
-                        spacing: 8
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: "Tuner"
-                            color: "#8293a0"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: recordReceiver.tunerName
-                            color: "#eef6fb"
-                            font.pixelSize: 16
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: 96
-                    radius: 8
-                    color: "#11181e"
-                    border.color: "#29343d"
+                Column {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 72, 760)
+                    spacing: 20
 
                     Text {
-                        id: recordPathLabel
-                        anchors.left: parent.left
-                        anchors.leftMargin: 16
-                        anchors.right: parent.right
-                        anchors.rightMargin: 16
-                        anchors.top: parent.top
-                        anchors.topMargin: 12
-                        text: "保存位置"
-                        color: "#8293a0"
-                        font.pixelSize: 12
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.mhzText(recordReceiver.centerFrequencyHz, 3) + " MHz"
+                        color: "#f6f8fb"
+                        font.pixelSize: 52
+                        font.bold: true
                         elide: Text.ElideRight
                     }
 
                     Text {
-                        anchors.left: recordPathLabel.left
-                        anchors.right: recordPathLabel.right
-                        anchors.top: recordPathLabel.bottom
-                        anchors.topMargin: 9
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 12
-                        text: recordReceiver.savedLocation
-                        color: "#d8e2ea"
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "u8 I/Q / " + root.sampleRateText(recordReceiver.sampleRateHz) + " / " + (recordReceiver.running ? "录制中" : "停止")
+                        color: recordReceiver.running ? root.accent : "#8fa0ad"
+                        font.pixelSize: 17
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    Row {
+                        width: parent.width
+                        height: 64
+                        spacing: 18
+
+                        Column {
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: parent.height
+                            spacing: 8
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: "文件大小"
+                                color: "#8293a0"
+                                font.pixelSize: 12
+                            }
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: root.bytesText(recordReceiver.bytesWritten)
+                                color: "#eef6fb"
+                                font.pixelSize: 24
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Column {
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: parent.height
+                            spacing: 8
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: "录制时长"
+                                color: "#8293a0"
+                                font.pixelSize: 12
+                            }
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: root.durationText(recordReceiver.elapsedSeconds)
+                                color: "#eef6fb"
+                                font.pixelSize: 24
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Column {
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: parent.height
+                            spacing: 8
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: "Tuner"
+                                color: "#8293a0"
+                                font.pixelSize: 12
+                            }
+
+                            Text {
+                                width: parent.width
+                                horizontalAlignment: Text.AlignHCenter
+                                text: recordReceiver.tunerName
+                                color: "#eef6fb"
+                                font.pixelSize: 16
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 96
+                        radius: 8
+                        color: "#11181e"
+                        border.color: "#29343d"
+
+                        Text {
+                            id: recordPathLabel
+                            anchors.left: parent.left
+                            anchors.leftMargin: 16
+                            anchors.right: parent.right
+                            anchors.rightMargin: 16
+                            anchors.top: parent.top
+                            anchors.topMargin: 12
+                            text: "保存位置"
+                            color: "#8293a0"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            anchors.left: recordPathLabel.left
+                            anchors.right: recordPathLabel.right
+                            anchors.top: recordPathLabel.bottom
+                            anchors.topMargin: 9
+                            anchors.bottom: parent.bottom
+                            anchors.bottomMargin: 12
+                            text: recordReceiver.savedLocation
+                            color: "#d8e2ea"
+                            font.pixelSize: 14
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideMiddle
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: recordReceiver.status
+                        color: "#a9bac6"
                         font.pixelSize: 14
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 2
-                        elide: Text.ElideMiddle
+                        elide: Text.ElideRight
                     }
                 }
+            }
 
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: recordReceiver.status
-                    color: "#a9bac6"
-                    font.pixelSize: 14
-                    elide: Text.ElideRight
-                }
+            // ---- 回放瀑布图视图（回放模式）----
+            WaterfallView {
+                anchors.fill: parent
+                visible: root.recordPlaybackMode
+                accent: root.accent
+                receiver: playbackProxy
             }
         }
     }
