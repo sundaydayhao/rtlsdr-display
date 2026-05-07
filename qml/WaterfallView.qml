@@ -13,6 +13,8 @@ Rectangle {
     property double latestRightFrequencyHz: 0
     property double leftFrequencyHz: hasLiveSpan ? latestLeftFrequencyHz : (receiver ? receiver.centerFrequencyHz - receiver.sampleRateHz / 2 : 0)
     property double rightFrequencyHz: hasLiveSpan ? latestRightFrequencyHz : (receiver ? receiver.centerFrequencyHz + receiver.sampleRateHz / 2 : 0)
+    property bool hasMarker: false
+    property double markerFrequencyHz: 0
 
     radius: 8
     color: "#090d12"
@@ -22,6 +24,8 @@ Rectangle {
     onWidthChanged: waterfallCanvas.requestPaint()
     onHeightChanged: waterfallCanvas.requestPaint()
     onAccentChanged: waterfallCanvas.requestPaint()
+    onHasMarkerChanged: waterfallCanvas.requestPaint()
+    onMarkerFrequencyHzChanged: waterfallCanvas.requestPaint()
 
     Connections {
         target: root.receiver
@@ -71,6 +75,24 @@ Rectangle {
             return (hz / 1000000000).toFixed(4) + " GHz"
         }
         return (hz / 1000000).toFixed(3) + " MHz"
+    }
+
+    function frequencyAtX(pixelX) {
+        var spanHz = root.rightFrequencyHz - root.leftFrequencyHz
+        if (!isFinite(spanHz) || spanHz <= 0 || root.width <= 0) {
+            return root.leftFrequencyHz
+        }
+
+        var ratio = Math.max(0, Math.min(1, pixelX / root.width))
+        return root.leftFrequencyHz + spanHz * ratio
+    }
+
+    function markerPixelX() {
+        var spanHz = root.rightFrequencyHz - root.leftFrequencyHz
+        if (!isFinite(spanHz) || spanHz <= 0 || root.width <= 0) {
+            return -1
+        }
+        return (root.markerFrequencyHz - root.leftFrequencyHz) / spanHz * root.width
     }
 
     Canvas {
@@ -140,6 +162,36 @@ Rectangle {
             ctx.fillStyle = "rgba(9, 13, 18, 0.72)"
             ctx.fillRect(0, spectrumHeight - 22, width, 22)
 
+            if (root.hasMarker) {
+                var markerX = root.markerPixelX()
+                if (markerX >= 0 && markerX <= width) {
+                    var crispX = Math.round(markerX) + 0.5
+                    var markerLabel = root.frequencyLabel(root.markerFrequencyHz)
+                    ctx.strokeStyle = "#eef6fb"
+                    ctx.lineWidth = 1
+                    ctx.beginPath()
+                    ctx.moveTo(crispX, 0)
+                    ctx.lineTo(crispX, height)
+                    ctx.stroke()
+
+                    ctx.font = "12px sans-serif"
+                    var labelPaddingX = 9
+                    var availableLabelWidth = Math.max(32, width - 16)
+                    var labelWidth = Math.min(availableLabelWidth, Math.ceil(ctx.measureText(markerLabel).width) + labelPaddingX * 2)
+                    var labelHeight = 24
+                    var labelX = Math.max(8, Math.min(Math.max(8, width - labelWidth - 8), markerX - labelWidth / 2))
+                    var labelY = Math.max(8, Math.min(height - labelHeight - 8, plotTop + 10))
+                    ctx.fillStyle = "rgba(9, 13, 18, 0.88)"
+                    ctx.fillRect(labelX, labelY, labelWidth, labelHeight)
+                    ctx.strokeStyle = String(root.accent)
+                    ctx.strokeRect(labelX + 0.5, labelY + 0.5, labelWidth - 1, labelHeight - 1)
+                    ctx.fillStyle = "#eef6fb"
+                    ctx.textBaseline = "middle"
+                    ctx.textAlign = "center"
+                    ctx.fillText(markerLabel, labelX + labelWidth / 2, labelY + labelHeight / 2, labelWidth - labelPaddingX * 2)
+                }
+            }
+
             ctx.fillStyle = "#9fb2c0"
             ctx.font = "12px sans-serif"
             ctx.textBaseline = "middle"
@@ -168,6 +220,17 @@ Rectangle {
                 return "#f4d35e"
             }
             return "#f77f00"
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.CrossCursor
+
+        onClicked: {
+            root.markerFrequencyHz = root.frequencyAtX(mouse.x)
+            root.hasMarker = true
+            waterfallCanvas.requestPaint()
         }
     }
 
