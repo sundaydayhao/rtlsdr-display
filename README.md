@@ -238,6 +238,26 @@ RECORD_OUTPUT_DIR=/tmp/rtlsdr
 ./rtlsdr-panel
 ```
 
+树莓派上 FM 页面启动后如果立刻停止，并且终端最后只看到 `Reattached kernel driver`，这通常只是 `librtlsdr` 关闭设备时的提示，真正原因多半是音频输出进程（默认 `aplay`）启动失败或声卡不可用。可先验证 ALSA：
+
+```bash
+aplay -l
+speaker-test -t sine -f 1000 -c 1
+```
+
+如果只想验证 FM 采集和频谱显示，可以临时禁用音频输出：
+
+```bash
+export RTLSDR_FM_AUDIO_CMD=off
+./rtlsdr-panel
+```
+
+也可以指定声卡设备，例如：
+
+```bash
+export RTLSDR_FM_AUDIO_CMD="aplay -q -D hw:0,0 -t raw -f S16_LE -r {rate} -c {channels}"
+```
+
 ---
 
 ## 项目结构

@@ -1,6 +1,7 @@
 #include "FmReceiver.h"
 
 #include <QByteArray>
+#include <QDebug>
 #include <QElapsedTimer>
 #include <QProcess>
 #include <QStringList>
@@ -399,6 +400,51 @@ QString audioCommand(uint32_t audioRate)
     return command;
 }
 
+bool audioOutputDisabled()
+{
+    const QString value = QString::fromLocal8Bit(qgetenv("RTLSDR_FM_AUDIO_CMD")).trimmed().toLower();
+    return value == QStringLiteral("off")
+        || value == QStringLiteral("none")
+        || value == QStringLiteral("disabled")
+        || value == QStringLiteral("0");
+}
+
+QString compactProcessText(const QByteArray &data)
+{
+    QString text = QString::fromLocal8Bit(data).simplified();
+    constexpr int maxLength = 240;
+    if (text.size() > maxLength) {
+        text = text.left(maxLength) + QStringLiteral("...");
+    }
+    return text;
+}
+
+QString audioProcessDetails(QProcess *audio)
+{
+    QStringList details;
+    const QString stderrText = compactProcessText(audio->readAllStandardError());
+    const QString stdoutText = compactProcessText(audio->readAllStandardOutput());
+    if (!stderrText.isEmpty()) {
+        details.append(stderrText);
+    }
+    if (!stdoutText.isEmpty()) {
+        details.append(stdoutText);
+    }
+    if (audio->state() == QProcess::NotRunning && audio->exitCode() != 0) {
+        details.append(QStringLiteral("退出码 %1").arg(audio->exitCode()));
+    }
+    return details.join(QStringLiteral("；"));
+}
+
+QString audioErrorMessage(const QString &summary, QProcess *audio)
+{
+    const QString details = audioProcessDetails(audio);
+    if (details.isEmpty()) {
+        return summary;
+    }
+    return QStringLiteral("%1：%2").arg(summary, details);
+}
+
 bool startAudioProcess(QProcess *audio, uint32_t audioRate, QString *error)
 {
     const QString command = audioCommand(audioRate);
@@ -409,7 +455,15 @@ bool startAudioProcess(QProcess *audio, uint32_t audioRate, QString *error)
 #endif
     if (!audio->waitForStarted(3000)) {
         if (error != nullptr) {
-            *error = QStringLiteral("启动音频输出失败：%1").arg(command);
+            *error = QStringLiteral("启动音频输出失败：%1；%2")
+                         .arg(command, audio->errorString());
+        }
+        return false;
+    }
+    if (audio->waitForFinished(150)) {
+        if (error != nullptr) {
+            *error = QStringLiteral("音频输出进程启动后立即退出：%1；%2")
+                         .arg(command, audioErrorMessage(QStringLiteral("音频错误"), audio));
         }
         return false;
     }
@@ -424,7 +478,7 @@ bool writePcmFrame(QProcess *audio, const std::vector<qint16> &frame, QString *e
 
     if (audio->state() != QProcess::Running) {
         if (error != nullptr) {
-            *error = QStringLiteral("音频输出进程已退出");
+            *error = audioErrorMessage(QStringLiteral("音频输出进程已退出"), audio);
         }
         return false;
     }
@@ -433,14 +487,14 @@ bool writePcmFrame(QProcess *audio, const std::vector<qint16> &frame, QString *e
     const qint64 byteCount = static_cast<qint64>(frame.size() * sizeof(qint16));
     if (audio->write(data, byteCount) < 0) {
         if (error != nullptr) {
-            *error = QStringLiteral("写入音频输出失败");
+            *error = audioErrorMessage(QStringLiteral("写入音频输出失败"), audio);
         }
         return false;
     }
 
     if (!audio->waitForBytesWritten(80) && audio->state() != QProcess::Running) {
         if (error != nullptr) {
-            *error = QStringLiteral("音频输出进程中断");
+            *error = audioErrorMessage(QStringLiteral("音频输出进程中断"), audio);
         }
         return false;
     }
@@ -677,15 +731,18 @@ protected:
 
         QProcess audio;
         QString audioError;
-        if (!startAudioProcess(&audio, m_modeProfile.audioRate, &audioError)) {
-            emit statusReady(audioError);
-            closeDevice();
-            return;
+        bool audioEnabled = !audioOutputDisabled();
+        if (audioEnabled && !startAudioProcess(&audio, m_modeProfile.audioRate, &audioError)) {
+            qWarning().noquote() << audioError;
+            emit statusReady(QStringLiteral("%1；FM 继续运行但静音").arg(audioError));
+            audioEnabled = false;
+        } else if (!audioEnabled) {
+            emit statusReady(QStringLiteral("FM 音频输出已禁用，继续运行频谱/解调"));
         }
 
         emit statusReady(QStringLiteral("FM 接收中：%1 / %2 / %3 SPS / 音频 %4 Hz / %5")
                              .arg(mhzLabel(currentFrequency),
-                                  m_modeProfile.label)
+                                  audioEnabled ? m_modeProfile.label : m_modeProfile.label + QStringLiteral(" / 静音"))
                              .arg(m_modeProfile.sampleRate)
                              .arg(m_modeProfile.audioRate)
                              .arg(tunerProfile.name));
@@ -708,6 +765,7 @@ protected:
         const double smoothingAlpha = spectrumSmoothingAlpha();
         double displayFloor = std::numeric_limits<double>::quiet_NaN();
         double displayCeiling = std::numeric_limits<double>::quiet_NaN();
+        QString stopReason;
 
         while (!m_stopRequested.load()) {
             const uint32_t requested = boundedRequestedFrequency(tunerProfile);
@@ -734,7 +792,9 @@ protected:
             int bytesRead = 0;
             result = rtlsdr_read_sync(device, raw.data(), static_cast<int>(raw.size()), &bytesRead);
             if (result < 0) {
-                emit statusReady(rtlError(QStringLiteral("读取 RTL-SDR 数据"), result));
+                stopReason = rtlError(QStringLiteral("读取 RTL-SDR 数据"), result);
+                qWarning().noquote() << stopReason;
+                emit statusReady(stopReason);
                 break;
             }
             if (bytesRead <= 1) {
@@ -779,10 +839,10 @@ protected:
                 ++levelSamples;
 
                 if (pcmFrame.size() >= kPcmFrameSamples) {
-                    if (!writePcmFrame(&audio, pcmFrame, &audioError)) {
-                        emit statusReady(audioError);
-                        m_stopRequested.store(true);
-                        break;
+                    if (audioEnabled && !writePcmFrame(&audio, pcmFrame, &audioError)) {
+                        qWarning().noquote() << audioError;
+                        emit statusReady(QStringLiteral("%1；FM 继续运行但静音").arg(audioError));
+                        audioEnabled = false;
                     }
                     pcmFrame.clear();
                 }
@@ -797,18 +857,24 @@ protected:
             }
         }
 
-        if (!pcmFrame.empty()) {
+        if (audioEnabled && !pcmFrame.empty()) {
             writePcmFrame(&audio, pcmFrame, nullptr);
         }
-        audio.closeWriteChannel();
-        audio.waitForFinished(600);
         if (audio.state() != QProcess::NotRunning) {
-            audio.kill();
-            audio.waitForFinished(300);
+            audio.closeWriteChannel();
+            audio.waitForFinished(600);
+            if (audio.state() != QProcess::NotRunning) {
+                audio.kill();
+                audio.waitForFinished(300);
+            }
         }
         closeDevice();
         emit audioLevelReady(0.0);
-        emit statusReady(QStringLiteral("FM 已停止"));
+        if (stopReason.isEmpty()) {
+            emit statusReady(QStringLiteral("FM 已停止"));
+        } else {
+            emit statusReady(QStringLiteral("FM 已停止：%1").arg(stopReason));
+        }
     }
 
 private:
