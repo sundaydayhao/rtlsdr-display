@@ -21,15 +21,9 @@
 - 采样率 2.4 MHz，解调后输出 48 kHz 单声道 PCM 音频
 - 通过 Qt Multimedia（`QAudioSink`）实时播放
 - 支持运行时动态调频（步进按钮 / 直接输入）、WFM / NFM 模式切换、音量调节
+- FM 页面显示当前调谐频点的实时 FFT 信号频谱，并展示平均能量、峰值强度、峰值频率、峰均差和音频电平
 
-### 3. AM 广播接收
-
-- 接收 AM 广播（默认 909 kHz，可配置）
-- 采样率 1.024 MHz，包络检波解调
-- 输出 48 kHz 单声道 PCM 音频，通过 `QAudioSink` 实时播放
-- 支持运行时动态调频、音量调节
-
-### 4. 无线传感器解码
+### 3. 无线传感器解码
 
 - 接收 433/315/303 MHz 频段无线传感器信号（温湿度计、气象站、门磁等）
 - 支持 OOK/ASK 调制解调
@@ -37,7 +31,7 @@
 - `SensorEventModel`（QAbstractListModel）供 QML 绑定，实时展示传感器数据
 - `SensorDecodeView.qml`：列表视图显示传感器 ID、类型、温度、湿度、电池状态等
 
-### 5. 频谱瀑布图
+### 4. 频谱瀑布图
 
 - 实时 FFT 频谱分析与瀑布图显示
 - 采样率 2.4 MHz，FFT 大小 512 点（可通过环境变量配置 128–2048）
@@ -45,7 +39,7 @@
 - 支持运行时动态调频（步进按钮 / 直接输入）、频率标记线
 - 环境变量配置：`RTLSDR_WATERFALL_FREQ`、`RTLSDR_WATERFALL_SAMPLE_RATE`、`RTLSDR_WATERFALL_FFT_SIZE`、`RTLSDR_WATERFALL_GAIN`
 
-### 6. 宽带频谱扫描（热力图）
+### 5. 宽带频谱扫描（热力图）
 
 - 模拟 rtl_power 的多跳扫描方式，对大范围频段逐步扫描
 - 每跳调谐 RTL-SDR → 采集 IQ → Cooley-Tukey FFT → 修复 DC 尖峰 → 拼接成完整扫描行
@@ -56,7 +50,7 @@
 - 自动降采样至 ≤1024 显示频点，保证渲染性能
 - 环境变量配置：`RTLSDR_SCANNER_START_FREQ`、`RTLSDR_SCANNER_STOP_FREQ`、`RTLSDR_SCANNER_SAMPLE_RATE`、`RTLSDR_SCANNER_GAIN`
 
-### 7. IQ 原始数据录制与回放
+### 6. IQ 原始数据录制与回放
 
 **录制模式：**
 - 将 RTL-SDR 原始 IQ 数据录制为 uint8 二进制文件（`.iq` / `.bin`）
@@ -80,11 +74,12 @@
 
 | QML 组件 | 说明 |
 |---|---|
-| `Main.qml` | 主窗口，应用磁贴导航（7 个功能入口） |
+| `Main.qml` | 主窗口，应用磁贴导航（6 个功能入口） |
 | `AppTile.qml` | 功能入口磁贴组件 |
 | `FeaturePage.qml` | 功能页面框架（左侧视图 + 右侧控制面板） |
 | `RadarMapView.qml` | ADS-B 雷达地图视图 |
 | `WaterfallView.qml` | 频谱瀑布图视图（也用于 IQ 回放） |
+| `SpectrumView.qml` | 实时 FFT 信号频谱视图 |
 | `HeatmapView.qml` | 宽带扫描热力图视图 |
 | `SensorDecodeView.qml` | 传感器数据列表视图 |
 | `StatusPill.qml` | 状态指示胶囊组件 |
@@ -106,7 +101,6 @@
 │  AppLauncher（QML 注册中心）                          │
 │  ├── AdsbReceiver    ──► AdsbDecoder ──► AircraftModel│
 │  ├── FmReceiver      ──► QAudioSink                  │
-│  ├── AmReceiver      ──► QAudioSink                  │
 │  ├── SensorReceiver  ──► SensorDecoder ──► EventModel│
 │  ├── WaterfallReceiver ──► FFT ──► QML Canvas        │
 │  ├── ScannerReceiver ──► 多跳FFT ──► HeatmapView     │
@@ -190,9 +184,6 @@ ADSB_GAIN=40
 # FM 默认频率（Hz）
 FM_FREQUENCY=100700000
 
-# AM 默认频率（Hz）
-AM_FREQUENCY=909000
-
 # 传感器接收频率（Hz）
 SENSOR_FREQUENCY=433920000
 
@@ -239,7 +230,6 @@ rtlsdr/
     │   ├── AdsbReceiver        # RTL-SDR 接收线程
     │   └── AdsbAircraftModel   # QML 数据模型
     ├── fm/                     # FM 接收模块
-    ├── am/                     # AM 接收模块
     ├── sensors/                # 无线传感器模块
     │   ├── SensorDecoder       # 多协议解码
     │   ├── SensorReceiver      # RTL-SDR 接收线程

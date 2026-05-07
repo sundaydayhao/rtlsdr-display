@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -23,6 +24,11 @@ constexpr quint64 kDefaultMaxFrequency = 1766000000ULL;
 constexpr int kReadBufferBytes = 64 * 1024;
 constexpr int kFrequencyRetryCount = 5;
 constexpr int kPcmFrameSamples = 1024;
+constexpr int kDefaultFftSize = 512;
+constexpr int kMinFftSize = 128;
+constexpr int kMaxFftSize = 2048;
+constexpr int kSpectrumFrameIntervalMs = 45;
+constexpr double kDefaultSpectrumSmoothingAlpha = 0.10;
 constexpr double kPi = 3.14159265358979323846;
 
 int envInt(const char *name, int fallback)
@@ -54,6 +60,14 @@ double envDouble(const char *name, double fallback)
     bool ok = false;
     const double parsed = QString::fromLatin1(value).toDouble(&ok);
     return ok ? parsed : fallback;
+}
+
+double spectrumSmoothingAlpha()
+{
+    return std::max(0.01,
+                    std::min(1.0,
+                             envDouble("RTLSDR_FM_SPECTRUM_SMOOTHING_ALPHA",
+                                       kDefaultSpectrumSmoothingAlpha)));
 }
 
 uint32_t clampToUInt32(double value)
@@ -89,6 +103,22 @@ uint32_t sampleRateForMode(const QString &mode, uint32_t audioRate)
                                                  static_cast<double>(configured)
                                                  / static_cast<double>(audioRate)))));
     return static_cast<uint32_t>(audioRate * static_cast<uint32_t>(decimation));
+}
+
+int nearestPowerOfTwo(int value)
+{
+    value = std::max(kMinFftSize, std::min(kMaxFftSize, value));
+
+    int power = 1;
+    while (power < value) {
+        power <<= 1;
+    }
+
+    const int lower = power >> 1;
+    if (lower >= kMinFftSize && value - lower < power - value) {
+        return lower;
+    }
+    return power;
 }
 
 QString normalizedFmMode(const QString &mode)
@@ -175,6 +205,118 @@ bool tuneWithRetry(rtlsdr_dev_t *device, uint32_t frequency, uint32_t *actualFre
         *error = QStringLiteral("设置中心频率失败：%1").arg(mhzLabel(frequency));
     }
     return false;
+}
+
+std::vector<double> hannWindow(int size)
+{
+    std::vector<double> window(size);
+    if (size <= 1) {
+        return window;
+    }
+
+    for (int i = 0; i < size; ++i) {
+        window[i] = 0.5 - 0.5 * std::cos(2.0 * kPi * i / static_cast<double>(size - 1));
+    }
+    return window;
+}
+
+void fft(std::vector<std::complex<double>> &values)
+{
+    const int size = static_cast<int>(values.size());
+    for (int i = 1, j = 0; i < size; ++i) {
+        int bit = size >> 1;
+        for (; (j & bit) != 0; bit >>= 1) {
+            j ^= bit;
+        }
+        j ^= bit;
+
+        if (i < j) {
+            std::swap(values[i], values[j]);
+        }
+    }
+
+    for (int length = 2; length <= size; length <<= 1) {
+        const double angle = -2.0 * kPi / static_cast<double>(length);
+        const std::complex<double> step(std::cos(angle), std::sin(angle));
+        for (int offset = 0; offset < size; offset += length) {
+            std::complex<double> weight(1.0, 0.0);
+            for (int i = 0; i < length / 2; ++i) {
+                const std::complex<double> even = values[offset + i];
+                const std::complex<double> odd = values[offset + i + length / 2] * weight;
+                values[offset + i] = even + odd;
+                values[offset + i + length / 2] = even - odd;
+                weight *= step;
+            }
+        }
+    }
+}
+
+QVariantList normalizeSpectrum(const std::vector<double> &dbValues, double *displayFloor, double *displayCeiling)
+{
+    std::vector<double> sorted = dbValues;
+    std::sort(sorted.begin(), sorted.end());
+    const double low = sorted[static_cast<size_t>(sorted.size() * 0.10)];
+    const double high = sorted[static_cast<size_t>(sorted.size() * 0.98)];
+
+    if (!std::isfinite(*displayFloor) || !std::isfinite(*displayCeiling)) {
+        *displayFloor = low;
+        *displayCeiling = std::max(high, low + 24.0);
+    } else {
+        *displayFloor = *displayFloor * 0.94 + low * 0.06;
+        *displayCeiling = *displayCeiling * 0.90 + std::max(high, *displayFloor + 18.0) * 0.10;
+    }
+
+    const double span = std::max(12.0, *displayCeiling - *displayFloor);
+    QVariantList levels;
+    levels.reserve(static_cast<int>(dbValues.size()));
+    for (double db : dbValues) {
+        const double normalized = std::max(0.0, std::min(1.0, (db - *displayFloor) / span));
+        levels.append(normalized);
+    }
+    return levels;
+}
+
+QVariantList spectrumFromIq(const std::vector<unsigned char> &raw,
+                            int availableBytes,
+                            int fftSize,
+                            const std::vector<double> &window,
+                            std::vector<std::complex<double>> *samples,
+                            std::vector<double> *spectrumPower,
+                            std::vector<double> *spectrumDb,
+                            bool *hasSmoothedSpectrum,
+                            double smoothingAlpha,
+                            double *displayFloor,
+                            double *displayCeiling)
+{
+    if (availableBytes < fftSize * 2) {
+        return QVariantList();
+    }
+
+    const int start = availableBytes - fftSize * 2;
+    for (int i = 0; i < fftSize; ++i) {
+        const int offset = start + i * 2;
+        const double inPhase = (static_cast<double>(raw[static_cast<size_t>(offset)]) - 127.5) / 128.0;
+        const double quadrature = (static_cast<double>(raw[static_cast<size_t>(offset + 1)]) - 127.5) / 128.0;
+        (*samples)[static_cast<size_t>(i)] = std::complex<double>(inPhase, quadrature) * window[static_cast<size_t>(i)];
+    }
+
+    fft(*samples);
+
+    const double scale = 1.0 / static_cast<double>(fftSize * fftSize);
+    for (int i = 0; i < fftSize; ++i) {
+        const int shiftedIndex = (i + fftSize / 2) % fftSize;
+        const double power = std::norm((*samples)[static_cast<size_t>(shiftedIndex)]) * scale;
+        double smoothedPower = power;
+        if (*hasSmoothedSpectrum) {
+            smoothedPower = (*spectrumPower)[static_cast<size_t>(i)] * (1.0 - smoothingAlpha)
+                            + power * smoothingAlpha;
+        }
+        (*spectrumPower)[static_cast<size_t>(i)] = smoothedPower;
+        (*spectrumDb)[static_cast<size_t>(i)] = 10.0 * std::log10(smoothedPower + 1.0e-12);
+    }
+    *hasSmoothedSpectrum = true;
+
+    return normalizeSpectrum(*spectrumDb, displayFloor, displayCeiling);
 }
 
 struct FmModeProfile {
@@ -425,6 +567,7 @@ public:
                 bool manualGain,
                 int directSampling,
                 const FmModeProfile &modeProfile,
+                int fftSize,
                 double volume,
                 QObject *parent = nullptr)
         : QThread(parent)
@@ -434,6 +577,7 @@ public:
         , m_manualGain(manualGain)
         , m_directSampling(directSampling)
         , m_modeProfile(modeProfile)
+        , m_fftSize(fftSize)
         , m_requestedFrequency(centerFrequency)
         , m_volumePermille(static_cast<int>(std::llround(volume * 1000.0)))
     {
@@ -461,6 +605,7 @@ signals:
     void tunerInfoReady(const QString &name, double minFrequencyHz, double maxFrequencyHz);
     void centerFrequencyReady(double frequencyHz);
     void audioLevelReady(double level);
+    void spectrumReady(const QVariantList &levels, double leftFrequencyHz, double rightFrequencyHz);
 
 protected:
     void run() override
@@ -551,8 +696,18 @@ protected:
         pcmFrame.reserve(kPcmFrameSamples);
         QElapsedTimer levelTimer;
         levelTimer.start();
+        QElapsedTimer spectrumTimer;
+        spectrumTimer.start();
         double levelEnergy = 0.0;
         int levelSamples = 0;
+        const std::vector<double> window = hannWindow(m_fftSize);
+        std::vector<std::complex<double>> spectrumSamples(static_cast<size_t>(m_fftSize));
+        std::vector<double> spectrumPower(static_cast<size_t>(m_fftSize));
+        std::vector<double> spectrumDb(static_cast<size_t>(m_fftSize));
+        bool hasSmoothedSpectrum = false;
+        const double smoothingAlpha = spectrumSmoothingAlpha();
+        double displayFloor = std::numeric_limits<double>::quiet_NaN();
+        double displayCeiling = std::numeric_limits<double>::quiet_NaN();
 
         while (!m_stopRequested.load()) {
             const uint32_t requested = boundedRequestedFrequency(tunerProfile);
@@ -569,6 +724,10 @@ protected:
                 rtlsdr_reset_buffer(device);
                 demodulator.reset();
                 pcmFrame.clear();
+                hasSmoothedSpectrum = false;
+                displayFloor = std::numeric_limits<double>::quiet_NaN();
+                displayCeiling = std::numeric_limits<double>::quiet_NaN();
+                spectrumTimer.restart();
                 emit statusReady(QStringLiteral("FM 已调谐到 %1").arg(mhzLabel(currentFrequency)));
             }
 
@@ -584,6 +743,27 @@ protected:
 
             const double volume = static_cast<double>(m_volumePermille.load()) / 1000.0;
             const int availableBytes = bytesRead & ~1;
+            if (availableBytes >= m_fftSize * 2 && spectrumTimer.elapsed() >= kSpectrumFrameIntervalMs) {
+                const QVariantList levels = spectrumFromIq(raw,
+                                                           availableBytes,
+                                                           m_fftSize,
+                                                           window,
+                                                           &spectrumSamples,
+                                                           &spectrumPower,
+                                                           &spectrumDb,
+                                                           &hasSmoothedSpectrum,
+                                                           smoothingAlpha,
+                                                           &displayFloor,
+                                                           &displayCeiling);
+                if (!levels.isEmpty()) {
+                    const double halfSpan = static_cast<double>(m_modeProfile.sampleRate) / 2.0;
+                    emit spectrumReady(levels,
+                                       static_cast<double>(currentFrequency) - halfSpan,
+                                       static_cast<double>(currentFrequency) + halfSpan);
+                }
+                spectrumTimer.restart();
+            }
+
             for (int offset = 0; offset + 1 < availableBytes; offset += 2) {
                 qint16 pcm = 0;
                 if (!demodulator.processSample(raw[static_cast<size_t>(offset)],
@@ -647,6 +827,7 @@ private:
     bool m_manualGain = false;
     int m_directSampling = 0;
     FmModeProfile m_modeProfile;
+    int m_fftSize = kDefaultFftSize;
     std::atomic_bool m_stopRequested {false};
     std::atomic<uint32_t> m_requestedFrequency;
     std::atomic<int> m_volumePermille;
@@ -661,6 +842,7 @@ FmReceiver::FmReceiver(QObject *parent)
     , m_audioRateHz(static_cast<double>(sanitizedAudioRate()))
     , m_minFrequencyHz(static_cast<double>(envUInt64("RTLSDR_FM_MIN_FREQ", kDefaultMinFrequency)))
     , m_maxFrequencyHz(static_cast<double>(envUInt64("RTLSDR_FM_MAX_FREQ", kDefaultMaxFrequency)))
+    , m_fftSize(nearestPowerOfTwo(envInt("RTLSDR_FM_FFT_SIZE", kDefaultFftSize)))
     , m_mode(normalizedFmMode(QString::fromLocal8Bit(qgetenv("RTLSDR_FM_MODE"))))
     , m_volume(std::max(0.0, std::min(1.5, envDouble("RTLSDR_FM_VOLUME", 0.80))))
 {
@@ -724,6 +906,11 @@ double FmReceiver::maxFrequencyHz() const
     return m_maxFrequencyHz;
 }
 
+int FmReceiver::fftSize() const
+{
+    return m_fftSize;
+}
+
 QString FmReceiver::mode() const
 {
     return m_mode;
@@ -767,12 +954,14 @@ void FmReceiver::start()
                                gainOk,
                                directSampling,
                                profile,
+                               m_fftSize,
                                m_volume);
     connect(m_worker, &RtlFmWorker::statusReady, this, &FmReceiver::setStatus);
     connect(m_worker, &RtlFmWorker::deviceCountReady, this, &FmReceiver::setDeviceCount);
     connect(m_worker, &RtlFmWorker::tunerInfoReady, this, &FmReceiver::setTunerInfo);
     connect(m_worker, &RtlFmWorker::centerFrequencyReady, this, &FmReceiver::setCenterFrequencyFromWorker);
     connect(m_worker, &RtlFmWorker::audioLevelReady, this, &FmReceiver::setAudioLevel);
+    connect(m_worker, &RtlFmWorker::spectrumReady, this, &FmReceiver::spectrumReady);
     connect(m_worker, &QThread::finished, this, [this]() {
         m_worker->deleteLater();
         m_worker = nullptr;

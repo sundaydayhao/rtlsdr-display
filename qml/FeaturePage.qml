@@ -15,6 +15,7 @@ Item {
     signal closeRequested()
     signal startRequested(string appId)
 
+
     function mhzText(hz, decimals) {
         return (hz / 1000000).toFixed(decimals)
     }
@@ -88,15 +89,6 @@ Item {
         fmFrequencyInput.text = mhzText(fmReceiver.centerFrequencyHz, 3)
     }
 
-    function commitAmFrequency() {
-        var mhz = parseFloat(amFrequencyInput.text)
-        if (isNaN(mhz)) {
-            amFrequencyInput.text = mhzText(amReceiver.centerFrequencyHz, 3)
-            return
-        }
-        amReceiver.tuneMHz(mhz)
-        amFrequencyInput.text = mhzText(amReceiver.centerFrequencyHz, 3)
-    }
 
     function commitRecordFrequency() {
         var mhz = parseFloat(recordFrequencyInput.text)
@@ -117,6 +109,7 @@ Item {
         recordReceiver.setSampleRateHz(msps * 1000000)
         recordSampleRateInput.text = (recordReceiver.sampleRateHz / 1000000).toFixed(3)
     }
+
 
     function commitRecordOutputPath() {
         recordReceiver.setOutputFilePath(recordPathInput.text)
@@ -260,7 +253,6 @@ Item {
         Text {
             anchors.centerIn: parent
             text: (root.appId === "adsb" && adsbReceiver.running)
-                  || (root.appId === "am" && amReceiver.running)
                   || (root.appId === "fm" && fmReceiver.running)
                   || (root.appId === "record" && !root.recordPlaybackMode && recordReceiver.running)
                   || (root.appId === "record" && root.recordPlaybackMode && recordReceiver.playbackRunning)
@@ -309,7 +301,6 @@ Item {
             anchors.bottom: parent.bottom
             width: Math.max(420, parent.width - sidePanel.width - 22)
             sourceComponent: root.appId === "adsb" ? radarComponent
-                             : root.appId === "am" ? amComponent
                              : root.appId === "fm" ? fmComponent
                              : root.appId === "record" ? recordComponent
                              : root.appId === "sensors" ? sensorComponent
@@ -337,7 +328,6 @@ Item {
                 anchors.top: parent.top
                 anchors.topMargin: 18
                 text: root.appId === "adsb" ? "ADS-B 接收"
-                      : root.appId === "am" ? "AM 接收"
                       : root.appId === "fm" ? "FM 接收"
                       : root.appId === "record" ? "I/Q 录制"
                       : root.appId === "sensors" ? "无线报文解码"
@@ -356,7 +346,7 @@ Item {
                 anchors.top: panelTitle.bottom
                 anchors.topMargin: 18
                 text: root.appId === "record" ? "录制状态"
-                      : root.appId === "adsb" || root.appId === "am" || root.appId === "fm"
+                      : root.appId === "adsb" || root.appId === "fm"
                         || root.appId === "sensors" || root.appId === "waterfall"
                         || root.appId === "scanner" ? "接收状态" : "启动命令"
                 color: "#8d9daa"
@@ -381,9 +371,6 @@ Item {
                         if (root.appId === "adsb") {
                             return adsbReceiver.status
                         }
-                        if (root.appId === "am") {
-                            return amReceiver.status
-                        }
                         if (root.appId === "fm") {
                             return fmReceiver.status
                         }
@@ -402,7 +389,7 @@ Item {
                         var cmd = appLauncher.commandFor(root.appId)
                         return cmd.length > 0 ? cmd : "未配置"
                     }
-                    color: root.appId === "adsb" || root.appId === "am" || root.appId === "fm"
+                    color: root.appId === "adsb" || root.appId === "fm"
                            || root.appId === "record" || root.appId === "sensors"
                            || root.appId === "waterfall" || root.appId === "scanner"
                            || appLauncher.commandFor(root.appId).length > 0 ? "#d8e2ea" : "#788895"
@@ -418,13 +405,12 @@ Item {
                 anchors.right: panelTitle.right
                 anchors.top: commandBox.bottom
                 anchors.topMargin: 20
-                spacing: root.appId === "am" || root.appId === "fm" || root.appId === "record" ? 8 : 12
+                spacing: root.appId === "fm" || root.appId === "record" ? 8 : 12
 
                 StatusPill {
                     width: parent.width
                     label: root.appId === "adsb" ? (adsbReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
-                           : root.appId === "am" ? (amReceiver.running ? "RTL-SDR：播放中" : "RTL-SDR：停止")
-                           : root.appId === "fm" ? (fmReceiver.running ? "RTL-SDR：播放中" : "RTL-SDR：停止")
+                           : root.appId === "fm" ? (fmReceiver.running ? "FM：播放中" : "FM：停止")
                            : root.appId === "record" ? (recordReceiver.running ? "I/Q：录制中" : "I/Q：停止")
                            : root.appId === "sensors" ? (sensorReceiver.running ? "RTL-SDR：解码中" : "RTL-SDR：停止")
                            : root.appId === "waterfall" ? (waterfallReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
@@ -437,7 +423,6 @@ Item {
                     width: parent.width
                     visible: root.appId !== "fm"
                     label: root.appId === "fm" ? "模式：WFM / NFM"
-                           : root.appId === "am" ? "模式：AM"
                            : root.appId === "adsb" ? ("设备：" + adsbReceiver.deviceCount + " 个")
                            : root.appId === "record" ? ("设备：" + recordReceiver.deviceCount + " 个")
                            : root.appId === "sensors" ? ("设备：" + sensorReceiver.deviceCount + " 个")
@@ -447,184 +432,6 @@ Item {
                     accent: "#80ed99"
                 }
 
-                Column {
-                    width: parent.width
-                    visible: root.appId === "am"
-                    spacing: 6
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: "频率 MHz"
-                        color: "#8d9daa"
-                        font.pixelSize: 12
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: 40
-                        radius: 8
-                        color: "#0b0f13"
-                        border.color: amFrequencyInput.activeFocus ? root.accent : "#27313a"
-
-                        TextInput {
-                            id: amFrequencyInput
-                            anchors.left: parent.left
-                            anchors.leftMargin: 12
-                            anchors.right: amUnitLabel.left
-                            anchors.rightMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.mhzText(amReceiver.centerFrequencyHz, 3)
-                            color: "#eef6fb"
-                            selectedTextColor: "#071014"
-                            selectionColor: root.accent
-                            font.pixelSize: 18
-                            font.bold: true
-                            selectByMouse: true
-                            inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            onAccepted: root.commitAmFrequency()
-                        }
-
-                        Text {
-                            id: amUnitLabel
-                            anchors.right: parent.right
-                            anchors.rightMargin: 12
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "MHz"
-                            color: "#8d9daa"
-                            font.pixelSize: 12
-                        }
-                    }
-
-                    Row {
-                        id: amStepRow
-                        width: parent.width
-                        height: 30
-                        spacing: 8
-
-                        Repeater {
-                            model: [
-                                { "label": "-0.1", "step": -0.1 },
-                                { "label": "-0.01", "step": -0.01 },
-                                { "label": "+0.01", "step": 0.01 },
-                                { "label": "+0.1", "step": 0.1 }
-                            ]
-
-                            Rectangle {
-                                width: (amStepRow.width - amStepRow.spacing * 3) / 4
-                                height: amStepRow.height
-                                radius: 8
-                                color: amStepMouse.pressed ? "#29323a" : amStepMouse.containsMouse ? "#222a31" : "#101419"
-                                border.color: "#313c46"
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: modelData.label
-                                    color: "#d8e2ea"
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                }
-
-                                MouseArea {
-                                    id: amStepMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        amReceiver.stepMHz(modelData.step)
-                                        amFrequencyInput.text = root.mhzText(amReceiver.centerFrequencyHz, 3)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: 32
-                        radius: 8
-                        color: amTuneMouse.pressed ? Qt.darker(root.accent, 1.35) : amTuneMouse.containsMouse ? Qt.lighter(root.accent, 1.08) : root.accent
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "调谐"
-                            color: "#071014"
-                            font.pixelSize: 14
-                            font.bold: true
-                        }
-
-                        MouseArea {
-                            id: amTuneMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.commitAmFrequency()
-                        }
-                    }
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: root.mhzText(amReceiver.minFrequencyHz, 3)
-                              + " - " + root.mhzText(amReceiver.maxFrequencyHz, 3) + " MHz"
-                        color: "#788895"
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: "音量"
-                        color: "#8d9daa"
-                        font.pixelSize: 12
-                    }
-
-                    Rectangle {
-                        id: amVolumeTrack
-                        width: parent.width
-                        height: 32
-                        radius: 8
-                        color: "#0b0f13"
-                        border.color: "#27313a"
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.margins: 3
-                            width: Math.max(8, (parent.width - 6) * Math.min(1.0, amReceiver.volume / 1.5))
-                            radius: 6
-                            color: root.accent
-                            opacity: 0.86
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Math.round(amReceiver.volume * 100) + "%"
-                            color: "#e6edf3"
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-
-                            function applyVolume(x) {
-                                amReceiver.setVolume(Math.max(0, Math.min(1.5, x / width * 1.5)))
-                            }
-
-                            onClicked: applyVolume(mouse.x)
-                            onPositionChanged: {
-                                if (pressed) {
-                                    applyVolume(mouse.x)
-                                }
-                            }
-                        }
-                    }
-                }
 
                 Column {
                     width: parent.width
@@ -750,6 +557,7 @@ Item {
                         font.pixelSize: 12
                         elide: Text.ElideRight
                     }
+
 
                     Text {
                         width: parent.width
@@ -1956,207 +1764,13 @@ Item {
         }
     }
 
-    Component {
-        id: amComponent
-        Rectangle {
-            color: "#0f1418"
-            radius: 8
-            border.color: "#2b3640"
-
-            Column {
-                anchors.centerIn: parent
-                width: Math.min(parent.width - 72, 680)
-                spacing: 22
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.mhzText(amReceiver.centerFrequencyHz, 3) + " MHz"
-                    color: "#f6f8fb"
-                    font.pixelSize: 52
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: "AM 包络检波 / " + (amReceiver.running ? "播放中" : "停止")
-                    color: amReceiver.running ? root.accent : "#8fa0ad"
-                    font.pixelSize: 17
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: 82
-                    radius: 8
-                    color: "#11181e"
-                    border.color: "#29343d"
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 28
-                        anchors.rightMargin: 28
-                        height: 2
-                        color: "#32414b"
-                    }
-
-                    Repeater {
-                        model: 11
-
-                        Rectangle {
-                            width: 2
-                            height: index % 2 === 0 ? 34 : 20
-                            x: 28 + index * ((parent.width - 56) / 10) - width / 2
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: index === 5 ? root.accent : "#657784"
-                        }
-                    }
-
-                    Rectangle {
-                        width: 4
-                        height: 58
-                        radius: 2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.accent
-                    }
-                }
-
-                Row {
-                    id: amMeterRow
-                    width: parent.width
-                    height: 30
-                    spacing: 6
-
-                    Repeater {
-                        model: 18
-
-                        Rectangle {
-                            width: (amMeterRow.width - amMeterRow.spacing * 17) / 18
-                            height: amMeterRow.height
-                            radius: 4
-                            color: index < Math.round(amReceiver.audioLevel * 18) ? root.accent : "#22303a"
-                            opacity: index < Math.round(amReceiver.audioLevel * 18) ? 1.0 : 0.72
-                        }
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: amReceiver.status
-                    color: "#a9bac6"
-                    font.pixelSize: 14
-                    elide: Text.ElideRight
-                }
-            }
-        }
-    }
 
     Component {
         id: fmComponent
-        Rectangle {
-            color: "#0f1418"
-            radius: 8
-            border.color: "#2b3640"
-
-            Column {
-                anchors.centerIn: parent
-                width: Math.min(parent.width - 72, 680)
-                spacing: 22
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.mhzText(fmReceiver.centerFrequencyHz, 3) + " MHz"
-                    color: "#f6f8fb"
-                    font.pixelSize: 52
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: fmReceiver.modeLabel + " / " + (fmReceiver.running ? "播放中" : "停止")
-                    color: fmReceiver.running ? root.accent : "#8fa0ad"
-                    font.pixelSize: 17
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: 82
-                    radius: 8
-                    color: "#11181e"
-                    border.color: "#29343d"
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 28
-                        anchors.rightMargin: 28
-                        height: 2
-                        color: "#32414b"
-                    }
-
-                    Repeater {
-                        model: 13
-
-                        Rectangle {
-                            width: 2
-                            height: index % 3 === 0 ? 34 : 20
-                            x: 28 + index * ((parent.width - 56) / 12) - width / 2
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: index === 6 ? root.accent : "#657784"
-                        }
-                    }
-
-                    Rectangle {
-                        width: 4
-                        height: 58
-                        radius: 2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.accent
-                    }
-                }
-
-                Row {
-                    id: fmMeterRow
-                    width: parent.width
-                    height: 30
-                    spacing: 6
-
-                    Repeater {
-                        model: 18
-
-                        Rectangle {
-                            width: (fmMeterRow.width - fmMeterRow.spacing * 17) / 18
-                            height: fmMeterRow.height
-                            radius: 4
-                            color: index < Math.round(fmReceiver.audioLevel * 18) ? root.accent : "#22303a"
-                            opacity: index < Math.round(fmReceiver.audioLevel * 18) ? 1.0 : 0.72
-                        }
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: fmReceiver.status
-                    color: "#a9bac6"
-                    font.pixelSize: 14
-                    elide: Text.ElideRight
-                }
-            }
+        SpectrumView {
+            accent: root.accent
+            receiver: fmReceiver
+            title: "FM FFT 信号频谱 / 能量强度"
         }
     }
 

@@ -1,5 +1,4 @@
 #include "AppLauncher.h"
-#include "am/AmReceiver.h"
 #include "adsb/AdsbReceiver.h"
 #include "fm/FmReceiver.h"
 #include "record/RecordReceiver.h"
@@ -79,7 +78,6 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(QStringLiteral(APP_VERSION));
 
     AppLauncher launcher;
-    AmReceiver amReceiver;
     AdsbReceiver adsbReceiver;
     FmReceiver fmReceiver;
     RecordReceiver recordReceiver;
@@ -91,7 +89,6 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     engine.setNetworkAccessManagerFactory(&networkFactory);
     engine.rootContext()->setContextProperty(QStringLiteral("appLauncher"), &launcher);
-    engine.rootContext()->setContextProperty(QStringLiteral("amReceiver"), &amReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("adsbReceiver"), &adsbReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("fmReceiver"), &fmReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("recordReceiver"), &recordReceiver);

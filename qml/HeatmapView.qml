@@ -5,6 +5,11 @@ Rectangle {
 
     property color accent: "#a855f7"
     property var receiver: null
+    property string title: "宽带频谱扫描 / 热力图"
+    property bool markerTracksFrequency: false
+    property double trackedFrequencyHz: 0
+
+    signal frequencySelected(double frequencyHz)
 
     // Internal state
     property var rows: []
@@ -25,6 +30,11 @@ Rectangle {
     onAccentChanged: heatmapCanvas.requestPaint()
     onHasMarkerChanged: heatmapCanvas.requestPaint()
     onMarkerFrequencyHzChanged: heatmapCanvas.requestPaint()
+    onTitleChanged: heatmapCanvas.requestPaint()
+    onTrackedFrequencyHzChanged: syncTrackedMarker()
+    onMarkerTracksFrequencyChanged: syncTrackedMarker()
+
+    Component.onCompleted: syncTrackedMarker()
 
     // -----------------------------------------------------------------------
     // Signal connections
@@ -40,6 +50,7 @@ Rectangle {
             root.rows = []
             root.hasLiveSpan = false
             root.hasMarker = false
+            root.syncTrackedMarker()
             heatmapCanvas.requestPaint()
         }
 
@@ -47,6 +58,7 @@ Rectangle {
             root.rows = []
             root.hasLiveSpan = false
             root.hasMarker = false
+            root.syncTrackedMarker()
             heatmapCanvas.requestPaint()
         }
 
@@ -104,7 +116,16 @@ Rectangle {
         if (Math.abs(hz) >= 1000000000) {
             return (hz / 1000000000).toFixed(3) + " GHz"
         }
-        return (hz / 1000000).toFixed(1) + " MHz"
+        if (Math.abs(hz) >= 10000000) {
+            return (hz / 1000000).toFixed(1) + " MHz"
+        }
+        if (Math.abs(hz) >= 1000000) {
+            return (hz / 1000000).toFixed(3) + " MHz"
+        }
+        if (Math.abs(hz) >= 1000) {
+            return (hz / 1000).toFixed(0) + " kHz"
+        }
+        return hz.toFixed(0) + " Hz"
     }
 
     function displayStartHz() {
@@ -137,6 +158,18 @@ Rectangle {
             return -1
         }
         return (root.markerFrequencyHz - startHz) / spanHz * root.width
+    }
+
+    function setMarker(frequencyHz) {
+        root.markerFrequencyHz = frequencyHz
+        root.hasMarker = true
+        heatmapCanvas.requestPaint()
+    }
+
+    function syncTrackedMarker() {
+        if (root.markerTracksFrequency) {
+            root.setMarker(root.trackedFrequencyHz)
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -317,9 +350,9 @@ Rectangle {
         cursorShape: Qt.CrossCursor
 
         onClicked: {
-            root.markerFrequencyHz = root.frequencyAtX(mouse.x)
-            root.hasMarker = true
-            heatmapCanvas.requestPaint()
+            var frequencyHz = root.frequencyAtX(mouse.x)
+            root.setMarker(frequencyHz)
+            root.frequencySelected(frequencyHz)
         }
     }
 
@@ -331,7 +364,7 @@ Rectangle {
         anchors.leftMargin: 18
         anchors.top: parent.top
         anchors.topMargin: 16
-        text: "宽带频谱扫描 / 热力图"
+        text: root.title
         color: "#eef6fb"
         font.pixelSize: 17
         font.bold: true

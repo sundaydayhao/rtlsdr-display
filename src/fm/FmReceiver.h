@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
 class RtlFmWorker;
 
@@ -17,6 +18,7 @@ class FmReceiver : public QObject
     Q_PROPERTY(double audioRateHz READ audioRateHz NOTIFY audioRateHzChanged)
     Q_PROPERTY(double minFrequencyHz READ minFrequencyHz NOTIFY tunerInfoChanged)
     Q_PROPERTY(double maxFrequencyHz READ maxFrequencyHz NOTIFY tunerInfoChanged)
+    Q_PROPERTY(int fftSize READ fftSize CONSTANT)
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(QString modeLabel READ modeLabel NOTIFY modeChanged)
     Q_PROPERTY(double audioLevel READ audioLevel NOTIFY audioLevelChanged)
@@ -35,6 +37,7 @@ public:
     double audioRateHz() const;
     double minFrequencyHz() const;
     double maxFrequencyHz() const;
+    int fftSize() const;
     QString mode() const;
     QString modeLabel() const;
     double audioLevel() const;
@@ -61,6 +64,7 @@ signals:
     void modeChanged();
     void audioLevelChanged();
     void volumeChanged();
+    void spectrumReady(const QVariantList &levels, double leftFrequencyHz, double rightFrequencyHz);
 
 private:
     void setRunning(bool running);
@@ -84,6 +88,7 @@ private:
     double m_audioRateHz = 48000.0;
     double m_minFrequencyHz = 24000000.0;
     double m_maxFrequencyHz = 1766000000.0;
+    int m_fftSize = 512;
     QString m_mode;
     double m_audioLevel = 0.0;
     double m_volume = 0.80;

@@ -19,13 +19,6 @@ Window {
             "icon": "plane"
         },
         {
-            "id": "am",
-            "title": "AM 接收",
-            "subtitle": "中短波 / 航空调幅监听",
-            "accent": "#f4d35e",
-            "icon": "am"
-        },
-        {
             "id": "fm",
             "title": "FM 接收",
             "subtitle": "宽窄带调频解调",
@@ -175,12 +168,6 @@ Window {
                 } else {
                     adsbReceiver.start()
                 }
-            } else if (appId === "am") {
-                if (amReceiver.running) {
-                    amReceiver.stop()
-                } else {
-                    amReceiver.start()
-                }
             } else if (appId === "fm") {
                 if (fmReceiver.running) {
                     fmReceiver.stop()
@@ -240,7 +227,6 @@ Window {
             width: parent.width - 96
             elide: Text.ElideRight
             text: root.activeFeature && root.activeFeature.id === "adsb" ? adsbReceiver.status
-                  : root.activeFeature && root.activeFeature.id === "am" ? amReceiver.status
                   : root.activeFeature && root.activeFeature.id === "fm" ? fmReceiver.status
                   : root.activeFeature && root.activeFeature.id === "record" ? recordReceiver.status
                   : root.activeFeature && root.activeFeature.id === "sensors" ? sensorReceiver.status

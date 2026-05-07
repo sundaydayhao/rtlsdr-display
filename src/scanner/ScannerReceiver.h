@@ -16,6 +16,7 @@ class ScannerReceiver : public QObject
     Q_PROPERTY(double startFrequencyHz READ startFrequencyHz NOTIFY startFrequencyHzChanged)
     Q_PROPERTY(double stopFrequencyHz READ stopFrequencyHz NOTIFY stopFrequencyHzChanged)
     Q_PROPERTY(double sampleRateHz READ sampleRateHz NOTIFY sampleRateHzChanged)
+    Q_PROPERTY(int directSampling READ directSampling WRITE setDirectSampling NOTIFY directSamplingChanged)
     Q_PROPERTY(int fftSize READ fftSize CONSTANT)
     Q_PROPERTY(int totalBins READ totalBins NOTIFY totalBinsChanged)
     Q_PROPERTY(double minFrequencyHz READ minFrequencyHz NOTIFY tunerInfoChanged)
@@ -32,6 +33,7 @@ public:
     double startFrequencyHz() const;
     double stopFrequencyHz() const;
     double sampleRateHz() const;
+    int directSampling() const;
     int fftSize() const;
     int totalBins() const;
     double minFrequencyHz() const;
@@ -41,6 +43,8 @@ public:
     Q_INVOKABLE void stop();
     Q_INVOKABLE void setStartFrequencyHz(double hz);
     Q_INVOKABLE void setStopFrequencyHz(double hz);
+    Q_INVOKABLE void setFrequencyRangeHz(double startHz, double stopHz);
+    Q_INVOKABLE void setDirectSampling(int directSampling);
 
 signals:
     void runningChanged();
@@ -50,6 +54,7 @@ signals:
     void startFrequencyHzChanged();
     void stopFrequencyHzChanged();
     void sampleRateHzChanged();
+    void directSamplingChanged();
     void totalBinsChanged();
     void scanLineReady(const QVariantList &powers, double startHz, double stopHz);
 
@@ -58,6 +63,8 @@ private:
     void setStatus(const QString &status);
     void setDeviceCount(int count);
     void setTunerInfo(const QString &name, double minHz, double maxHz);
+    void refreshConfiguredFrequencyRange();
+    void clampConfiguredScanRange();
     void updateTotalBins();
 
     RtlScanWorker *m_worker = nullptr;
@@ -68,6 +75,7 @@ private:
     double m_startFrequencyHz = 88000000.0;
     double m_stopFrequencyHz  = 108000000.0;
     double m_sampleRateHz     = 2400000.0;
+    int    m_directSampling   = 0;
     double m_minFrequencyHz   = 24000000.0;
     double m_maxFrequencyHz   = 1766000000.0;
     int    m_fftSize           = 512;

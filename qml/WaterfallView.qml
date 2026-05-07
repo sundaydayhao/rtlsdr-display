@@ -5,16 +5,23 @@ Rectangle {
 
     property color accent: "#f77f00"
     property var receiver: null
+    property string title: "实时频谱 / 瀑布图"
     property var rows: []
     property int bins: receiver ? receiver.fftSize : 512
     property int maxRows: Math.max(28, Math.floor((height - 112) / 4))
     property bool hasLiveSpan: false
     property double latestLeftFrequencyHz: 0
     property double latestRightFrequencyHz: 0
-    property double leftFrequencyHz: hasLiveSpan ? latestLeftFrequencyHz : (receiver ? receiver.centerFrequencyHz - receiver.sampleRateHz / 2 : 0)
-    property double rightFrequencyHz: hasLiveSpan ? latestRightFrequencyHz : (receiver ? receiver.centerFrequencyHz + receiver.sampleRateHz / 2 : 0)
+    property bool hasIdleFrequencySpan: false
+    property double idleLeftFrequencyHz: 0
+    property double idleRightFrequencyHz: 0
+    property double leftFrequencyHz: hasIdleFrequencySpan ? idleLeftFrequencyHz : (hasLiveSpan ? latestLeftFrequencyHz : (receiver ? receiver.centerFrequencyHz - receiver.sampleRateHz / 2 : 0))
+    property double rightFrequencyHz: hasIdleFrequencySpan ? idleRightFrequencyHz : (hasLiveSpan ? latestRightFrequencyHz : (receiver ? receiver.centerFrequencyHz + receiver.sampleRateHz / 2 : 0))
     property bool hasMarker: false
     property double markerFrequencyHz: 0
+    property bool markerTracksReceiver: false
+
+    signal frequencySelected(double frequencyHz)
 
     radius: 8
     color: "#090d12"
@@ -26,6 +33,13 @@ Rectangle {
     onAccentChanged: waterfallCanvas.requestPaint()
     onHasMarkerChanged: waterfallCanvas.requestPaint()
     onMarkerFrequencyHzChanged: waterfallCanvas.requestPaint()
+    onHasIdleFrequencySpanChanged: resetRows()
+    onIdleLeftFrequencyHzChanged: resetRows()
+    onIdleRightFrequencyHzChanged: resetRows()
+
+    Component.onCompleted: syncMarkerToReceiver()
+
+    onReceiverChanged: syncMarkerToReceiver()
 
     Connections {
         target: root.receiver
@@ -38,6 +52,7 @@ Rectangle {
             if (!root.receiver || !root.receiver.running) {
                 root.hasLiveSpan = false
             }
+            root.syncMarkerToReceiver()
             waterfallCanvas.requestPaint()
         }
         onSampleRateHzChanged: {
@@ -51,9 +66,40 @@ Rectangle {
             return
         }
 
-        var row = []
+        var incoming = []
         for (var i = 0; i < levels.length; ++i) {
-            row.push(Number(levels[i]))
+            incoming.push(Number(levels[i]))
+        }
+
+        var row = incoming
+        if (root.hasIdleFrequencySpan) {
+            var displaySpan = root.idleRightFrequencyHz - root.idleLeftFrequencyHz
+            var liveSpan = rightHz - leftHz
+            var targetBins = Math.max(128, root.bins > 0 ? root.bins : incoming.length)
+            var sums = []
+            var counts = []
+            row = []
+            for (var b = 0; b < targetBins; ++b) {
+                sums.push(0)
+                counts.push(0)
+                row.push(0)
+            }
+
+            if (isFinite(displaySpan) && displaySpan > 0 && isFinite(liveSpan) && liveSpan > 0) {
+                for (var j = 0; j < incoming.length; ++j) {
+                    var frequencyHz = leftHz + liveSpan * ((j + 0.5) / incoming.length)
+                    var displayIndex = Math.floor((frequencyHz - root.idleLeftFrequencyHz) / displaySpan * targetBins)
+                    if (displayIndex >= 0 && displayIndex < targetBins) {
+                        sums[displayIndex] += incoming[j]
+                        counts[displayIndex] += 1
+                    }
+                }
+                for (var k = 0; k < targetBins; ++k) {
+                    if (counts[k] > 0) {
+                        row[k] = sums[k] / counts[k]
+                    }
+                }
+            }
         }
 
         root.bins = row.length
@@ -68,6 +114,24 @@ Rectangle {
         }
         root.rows = next
         waterfallCanvas.requestPaint()
+    }
+
+    function resetRows() {
+        root.rows = []
+        root.hasLiveSpan = false
+        waterfallCanvas.requestPaint()
+    }
+
+    function setMarker(frequencyHz) {
+        root.markerFrequencyHz = frequencyHz
+        root.hasMarker = true
+        waterfallCanvas.requestPaint()
+    }
+
+    function syncMarkerToReceiver() {
+        if (root.markerTracksReceiver && root.receiver) {
+            root.setMarker(root.receiver.centerFrequencyHz)
+        }
     }
 
     function frequencyLabel(hz) {
@@ -228,9 +292,9 @@ Rectangle {
         cursorShape: Qt.CrossCursor
 
         onClicked: {
-            root.markerFrequencyHz = root.frequencyAtX(mouse.x)
-            root.hasMarker = true
-            waterfallCanvas.requestPaint()
+            var frequencyHz = root.frequencyAtX(mouse.x)
+            root.setMarker(frequencyHz)
+            root.frequencySelected(frequencyHz)
         }
     }
 
@@ -239,7 +303,7 @@ Rectangle {
         anchors.leftMargin: 18
         anchors.top: parent.top
         anchors.topMargin: 14
-        text: "实时频谱 / 瀑布图"
+        text: root.title
         color: "#eef6fb"
         font.pixelSize: 18
         font.bold: true

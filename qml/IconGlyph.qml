@@ -45,7 +45,7 @@ Item {
                 return
             }
 
-            if (root.kind === "am" || root.kind === "fm") {
+            if (root.kind === "fm") {
                 ctx.beginPath()
                 ctx.moveTo(w * 0.5, h * 0.74)
                 ctx.lineTo(w * 0.5, h * 0.30)

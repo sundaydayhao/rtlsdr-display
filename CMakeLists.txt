@@ -40,8 +40,6 @@ set(PROJECT_SOURCES
     src/main.cpp
     src/AppLauncher.cpp
     src/AppLauncher.h
-    src/am/AmReceiver.cpp
-    src/am/AmReceiver.h
     src/adsb/AdsbAircraftModel.cpp
     src/adsb/AdsbAircraftModel.h
     src/adsb/AdsbDecoder.cpp

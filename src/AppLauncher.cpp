@@ -88,9 +88,6 @@ QString AppLauncher::envNameFor(const QString &appId)
     if (appId == QStringLiteral("adsb")) {
         return QStringLiteral("RTLSDR_PANEL_ADSB_CMD");
     }
-    if (appId == QStringLiteral("am")) {
-        return QStringLiteral("RTLSDR_PANEL_AM_CMD");
-    }
     if (appId == QStringLiteral("fm")) {
         return QStringLiteral("RTLSDR_PANEL_FM_CMD");
     }
@@ -111,9 +108,6 @@ QString AppLauncher::displayNameFor(const QString &appId)
 {
     if (appId == QStringLiteral("adsb")) {
         return QStringLiteral("ADS-B 飞机识别");
-    }
-    if (appId == QStringLiteral("am")) {
-        return QStringLiteral("AM 接收");
     }
     if (appId == QStringLiteral("fm")) {
         return QStringLiteral("FM 接收");

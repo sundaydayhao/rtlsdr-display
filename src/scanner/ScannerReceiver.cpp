@@ -1,5 +1,6 @@
 #include "ScannerReceiver.h"
 
+#include <QByteArray>
 #include <QThread>
 
 #include <algorithm>
@@ -17,6 +18,8 @@ constexpr quint64 kScanDefaultStop       = 108000000ULL;
 constexpr quint64 kScanDefaultSampleRate = 2400000ULL;
 constexpr quint64 kScanDefaultMinFreq    = 24000000ULL;
 constexpr quint64 kScanDefaultMaxFreq    = 1766000000ULL;
+constexpr quint64 kScanDirectMinFreq     = 100000ULL;
+constexpr quint64 kScanDirectMaxFreq     = 30000000ULL;
 constexpr int     kScanDefaultFftSize    = 512;
 constexpr int     kScanMinFftSize        = 128;
 constexpr int     kScanMaxFftSize        = 2048;
@@ -67,6 +70,18 @@ uint32_t clampToUInt32(double value)
     return static_cast<uint32_t>(std::llround(value));
 }
 
+int sanitizedDirectSampling()
+{
+    return std::max(0, std::min(2, envInt("RTLSDR_SCANNER_DIRECT_SAMPLING", 0)));
+}
+
+int binsForRange(double startHz, double stopHz, double sampleRateHz, int fftSize)
+{
+    const double spanHz = std::max(1.0, stopHz - startHz);
+    const double bins = spanHz / std::max(1.0, sampleRateHz) * static_cast<double>(fftSize);
+    return std::max(1, static_cast<int>(std::ceil(bins)));
+}
+
 QString rtlError(const QString &operation, int code)
 {
     return QStringLiteral("%1 失败，错误码 %2").arg(operation).arg(code);
@@ -104,8 +119,14 @@ TunerProfile profileFor(enum rtlsdr_tuner tuner)
     }
 }
 
-TunerProfile withScannerRange(TunerProfile profile)
+TunerProfile withScannerRange(TunerProfile profile, int directSampling)
 {
+    if (directSampling != 0) {
+        profile.name += QStringLiteral(" / Direct sampling");
+        profile.minFrequencyHz = kScanDirectMinFreq;
+        profile.maxFrequencyHz = kScanDirectMaxFreq;
+    }
+
     profile.minFrequencyHz = envUInt64("RTLSDR_SCANNER_MIN_FREQ", profile.minFrequencyHz);
     profile.maxFrequencyHz = envUInt64("RTLSDR_SCANNER_MAX_FREQ", profile.maxFrequencyHz);
     if (profile.minFrequencyHz > profile.maxFrequencyHz) {
@@ -198,6 +219,7 @@ public:
                   int      ppm,
                   int      gain,
                   bool     manualGain,
+                  int      directSampling,
                   int      fftSize,
                   QObject *parent = nullptr)
         : QThread(parent)
@@ -206,6 +228,7 @@ public:
         , m_ppm(ppm)
         , m_gain(gain)
         , m_manualGain(manualGain)
+        , m_directSampling(directSampling)
         , m_fftSize(fftSize)
         , m_requestedStart(startFreq)
         , m_requestedStop(stopFreq)
@@ -255,7 +278,7 @@ protected:
             device = nullptr;
         };
 
-        TunerProfile profile = withScannerRange(profileFor(rtlsdr_get_tuner_type(device)));
+        TunerProfile profile = withScannerRange(profileFor(rtlsdr_get_tuner_type(device)), m_directSampling);
         emit tunerInfoReady(profile.name,
                             static_cast<double>(profile.minFrequencyHz),
                             static_cast<double>(profile.maxFrequencyHz));
@@ -269,6 +292,7 @@ protected:
 
         rtlsdr_set_freq_correction(device, m_ppm);
         rtlsdr_set_agc_mode(device, 1);
+        rtlsdr_set_direct_sampling(device, m_directSampling);
         rtlsdr_set_offset_tuning(device, 0);
         rtlsdr_set_tuner_bandwidth(device, 0);
         if (m_manualGain) {
@@ -289,15 +313,21 @@ protected:
             uint32_t startFreq = bounded(m_requestedStart.load(), profile);
             uint32_t stopFreq  = bounded(m_requestedStop.load(), profile);
             if (startFreq >= stopFreq) {
-                stopFreq = std::min(startFreq + m_sampleRate,
+                stopFreq = std::min(startFreq + 1u,
                                     static_cast<uint32_t>(profile.maxFrequencyHz));
+                if (startFreq >= stopFreq && startFreq > profile.minFrequencyHz) {
+                    startFreq -= 1u;
+                }
             }
 
             const int numHops  = std::max(1,
                 static_cast<int>(std::ceil(
                     static_cast<double>(stopFreq - startFreq) /
                     static_cast<double>(m_sampleRate))));
-            const int totalBins = numHops * m_fftSize;
+            const int totalBins = binsForRange(static_cast<double>(startFreq),
+                                               static_cast<double>(stopFreq),
+                                               static_cast<double>(m_sampleRate),
+                                               m_fftSize);
             emit totalBinsReady(totalBins);
 
             std::vector<double> linePowers;
@@ -332,8 +362,15 @@ protected:
 
                 const int availableBytes = bytesRead & ~1;
                 if (availableBytes < m_fftSize * 2) {
-                    // Not enough data — fill with noise floor
+                    const double hopLeftHz = static_cast<double>(startFreq)
+                        + static_cast<double>(hop) * static_cast<double>(m_sampleRate);
                     for (int i = 0; i < m_fftSize; ++i) {
+                        const double binFrequencyHz = hopLeftHz
+                            + static_cast<double>(m_sampleRate) * (static_cast<double>(i) + 0.5)
+                                / static_cast<double>(m_fftSize);
+                        if (binFrequencyHz >= static_cast<double>(stopFreq)) {
+                            break;
+                        }
                         linePowers.push_back(-120.0);
                     }
                     continue;
@@ -352,7 +389,16 @@ protected:
 
                 // Power spectrum (FFT-shifted), fix DC spike
                 const double scale = 1.0 / static_cast<double>(m_fftSize * m_fftSize);
+                const double hopLeftHz = static_cast<double>(startFreq)
+                    + static_cast<double>(hop) * static_cast<double>(m_sampleRate);
                 for (int i = 0; i < m_fftSize; ++i) {
+                    const double binFrequencyHz = hopLeftHz
+                        + static_cast<double>(m_sampleRate) * (static_cast<double>(i) + 0.5)
+                            / static_cast<double>(m_fftSize);
+                    if (binFrequencyHz >= static_cast<double>(stopFreq)) {
+                        break;
+                    }
+
                     const int shiftedIdx = (i + m_fftSize / 2) % m_fftSize;
                     double power = std::norm(samples[shiftedIdx]) * scale;
 
@@ -375,13 +421,9 @@ protected:
             const QVariantList levels =
                 normalizeSpectrum(linePowers, &displayFloor, &displayCeiling);
 
-            const double actualStop =
-                static_cast<double>(startFreq) +
-                static_cast<double>(numHops) * static_cast<double>(m_sampleRate);
-
             emit scanLineReady(levels,
                                static_cast<double>(startFreq),
-                               actualStop);
+                               static_cast<double>(stopFreq));
 
             emit statusReady(
                 QStringLiteral("扫描中：%1 → %2 / %3 跳 / %4 个频点")
@@ -408,6 +450,7 @@ private:
     int               m_ppm        = 0;
     int               m_gain       = 0;
     bool              m_manualGain = false;
+    int               m_directSampling = 0;
     int               m_fftSize;
     std::atomic_bool  m_stopRequested{false};
     std::atomic<uint32_t> m_requestedStart;
@@ -428,22 +471,13 @@ ScannerReceiver::ScannerReceiver(QObject *parent)
           envUInt64("RTLSDR_SCANNER_STOP_FREQ", kScanDefaultStop)))
     , m_sampleRateHz(static_cast<double>(
           envUInt64("RTLSDR_SCANNER_SAMPLE_RATE", kScanDefaultSampleRate)))
-    , m_minFrequencyHz(static_cast<double>(
-          envUInt64("RTLSDR_SCANNER_MIN_FREQ", kScanDefaultMinFreq)))
-    , m_maxFrequencyHz(static_cast<double>(
-          envUInt64("RTLSDR_SCANNER_MAX_FREQ", kScanDefaultMaxFreq)))
+    , m_directSampling(sanitizedDirectSampling())
     , m_fftSize(nearestPowerOfTwo(
           envInt("RTLSDR_SCANNER_FFT_SIZE", kScanDefaultFftSize)))
 {
-    if (m_minFrequencyHz > m_maxFrequencyHz) {
-        std::swap(m_minFrequencyHz, m_maxFrequencyHz);
-    }
     m_sampleRateHz = std::max(250000.0, std::min(3200000.0, m_sampleRateHz));
-    if (m_startFrequencyHz < m_minFrequencyHz) m_startFrequencyHz = m_minFrequencyHz;
-    if (m_stopFrequencyHz  > m_maxFrequencyHz) m_stopFrequencyHz  = m_maxFrequencyHz;
-    if (m_startFrequencyHz >= m_stopFrequencyHz) {
-        m_stopFrequencyHz = m_startFrequencyHz + m_sampleRateHz;
-    }
+    refreshConfiguredFrequencyRange();
+    clampConfiguredScanRange();
     updateTotalBins();
 }
 
@@ -462,6 +496,7 @@ QString ScannerReceiver::tunerName() const { return m_tunerName; }
 double ScannerReceiver::startFrequencyHz() const { return m_startFrequencyHz; }
 double ScannerReceiver::stopFrequencyHz() const { return m_stopFrequencyHz; }
 double ScannerReceiver::sampleRateHz() const { return m_sampleRateHz; }
+int ScannerReceiver::directSampling() const { return m_directSampling; }
 int ScannerReceiver::fftSize() const { return m_fftSize; }
 int ScannerReceiver::totalBins() const { return m_totalBins; }
 double ScannerReceiver::minFrequencyHz() const { return m_minFrequencyHz; }
@@ -489,6 +524,7 @@ void ScannerReceiver::start()
                                   ppm,
                                   gain,
                                   gainOk,
+                                  m_directSampling,
                                   m_fftSize);
 
     connect(m_worker, &RtlScanWorker::statusReady,
@@ -528,7 +564,7 @@ void ScannerReceiver::setStartFrequencyHz(double hz)
 {
     hz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, hz));
     if (hz >= m_stopFrequencyHz) {
-        hz = m_stopFrequencyHz - m_sampleRateHz;
+        hz = m_stopFrequencyHz - 1.0;
     }
     if (hz < m_minFrequencyHz) {
         hz = m_minFrequencyHz;
@@ -545,11 +581,65 @@ void ScannerReceiver::setStartFrequencyHz(double hz)
     }
 }
 
+void ScannerReceiver::setFrequencyRangeHz(double startHz, double stopHz)
+{
+    if (startHz > stopHz) {
+        std::swap(startHz, stopHz);
+    }
+
+    startHz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, startHz));
+    stopHz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, stopHz));
+    if (startHz >= stopHz) {
+        stopHz = std::min(m_maxFrequencyHz, startHz + 1.0);
+        if (startHz >= stopHz) {
+            startHz = std::max(m_minFrequencyHz, stopHz - 1.0);
+        }
+    }
+
+    const bool startChanged = !qFuzzyCompare(m_startFrequencyHz, startHz);
+    const bool stopChanged = !qFuzzyCompare(m_stopFrequencyHz, stopHz);
+    if (!startChanged && !stopChanged) {
+        return;
+    }
+
+    m_startFrequencyHz = startHz;
+    m_stopFrequencyHz = stopHz;
+    if (startChanged) emit startFrequencyHzChanged();
+    if (stopChanged) emit stopFrequencyHzChanged();
+    updateTotalBins();
+    if (m_worker != nullptr) {
+        m_worker->requestRange(clampToUInt32(m_startFrequencyHz),
+                               clampToUInt32(m_stopFrequencyHz));
+    }
+}
+
+void ScannerReceiver::setDirectSampling(int directSampling)
+{
+    directSampling = std::max(0, std::min(2, directSampling));
+    if (m_directSampling == directSampling) {
+        return;
+    }
+
+    const bool wasRunning = m_worker != nullptr;
+    if (m_worker != nullptr) {
+        stop();
+    }
+
+    m_directSampling = directSampling;
+    emit directSamplingChanged();
+    refreshConfiguredFrequencyRange();
+    clampConfiguredScanRange();
+    updateTotalBins();
+    if (wasRunning) {
+        setStatus(QStringLiteral("采样模式已切换，请重新启动扫描"));
+    }
+}
+
 void ScannerReceiver::setStopFrequencyHz(double hz)
 {
     hz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, hz));
     if (hz <= m_startFrequencyHz) {
-        hz = m_startFrequencyHz + m_sampleRateHz;
+        hz = m_startFrequencyHz + 1.0;
     }
     if (hz > m_maxFrequencyHz) {
         hz = m_maxFrequencyHz;
@@ -600,12 +690,55 @@ void ScannerReceiver::setTunerInfo(const QString &name, double minHz, double max
     emit tunerInfoChanged();
 }
 
+void ScannerReceiver::refreshConfiguredFrequencyRange()
+{
+    const double fallbackMin = m_directSampling != 0
+        ? static_cast<double>(kScanDirectMinFreq)
+        : static_cast<double>(kScanDefaultMinFreq);
+    const double fallbackMax = m_directSampling != 0
+        ? static_cast<double>(kScanDirectMaxFreq)
+        : static_cast<double>(kScanDefaultMaxFreq);
+    double minHz = static_cast<double>(envUInt64("RTLSDR_SCANNER_MIN_FREQ", clampToUInt32(fallbackMin)));
+    double maxHz = static_cast<double>(envUInt64("RTLSDR_SCANNER_MAX_FREQ", clampToUInt32(fallbackMax)));
+    if (minHz > maxHz) {
+        std::swap(minHz, maxHz);
+    }
+
+    const bool changed = !qFuzzyCompare(m_minFrequencyHz, minHz)
+        || !qFuzzyCompare(m_maxFrequencyHz, maxHz);
+    m_minFrequencyHz = minHz;
+    m_maxFrequencyHz = maxHz;
+    if (changed) {
+        emit tunerInfoChanged();
+    }
+}
+
+void ScannerReceiver::clampConfiguredScanRange()
+{
+    double startHz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, m_startFrequencyHz));
+    double stopHz = std::max(m_minFrequencyHz, std::min(m_maxFrequencyHz, m_stopFrequencyHz));
+    if (startHz >= stopHz) {
+        stopHz = std::min(m_maxFrequencyHz, startHz + 1.0);
+        if (startHz >= stopHz) {
+            startHz = std::max(m_minFrequencyHz, stopHz - 1.0);
+        }
+    }
+
+    const bool startChanged = !qFuzzyCompare(m_startFrequencyHz, startHz);
+    const bool stopChanged = !qFuzzyCompare(m_stopFrequencyHz, stopHz);
+    m_startFrequencyHz = startHz;
+    m_stopFrequencyHz = stopHz;
+    if (startChanged) emit startFrequencyHzChanged();
+    if (stopChanged) emit stopFrequencyHzChanged();
+    if (m_worker != nullptr) {
+        m_worker->requestRange(clampToUInt32(m_startFrequencyHz),
+                               clampToUInt32(m_stopFrequencyHz));
+    }
+}
+
 void ScannerReceiver::updateTotalBins()
 {
-    const int numHops = std::max(1,
-        static_cast<int>(std::ceil(
-            (m_stopFrequencyHz - m_startFrequencyHz) / m_sampleRateHz)));
-    const int bins = numHops * m_fftSize;
+    const int bins = binsForRange(m_startFrequencyHz, m_stopFrequencyHz, m_sampleRateHz, m_fftSize);
     if (m_totalBins == bins) return;
     m_totalBins = bins;
     emit totalBinsChanged();
