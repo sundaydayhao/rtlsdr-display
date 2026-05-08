@@ -105,6 +105,10 @@ target_compile_definitions(rtlsdr-panel
         RTLSDR_PANEL_TARGET="${RTLSDR_PANEL_TARGET}"
 )
 
+if(QT_VERSION_MAJOR EQUAL 6)
+    set_target_properties(rtlsdr-panel PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+endif()
+
 install(TARGETS rtlsdr-panel RUNTIME DESTINATION bin)
 
 if(QT_VERSION_MAJOR EQUAL 6)
