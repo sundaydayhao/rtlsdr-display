@@ -370,20 +370,4 @@ Rectangle {
         font.bold: true
     }
 
-    Text {
-        anchors.right: parent.right
-        anchors.rightMargin: 160
-        anchors.top: parent.top
-        anchors.topMargin: 18
-        text: {
-            if (!receiver) return ""
-            if (receiver.running) {
-                return receiver.totalBins + " 个频点"
-            }
-            return "停止"
-        }
-        color: receiver && receiver.running ? String(root.accent) : "#9fb2c0"
-        font.pixelSize: 12
-        font.bold: true
-    }
 }

@@ -13,6 +13,7 @@ Rectangle {
     property double peakLevel: 0
     property double peakFrequencyHz: receiver ? receiver.centerFrequencyHz : 0
     property double peakToAverageDb: 0
+    property bool compactUi: width <= 640 || height <= 380
 
     radius: 8
     color: "#090d12"
@@ -101,8 +102,8 @@ Rectangle {
             ctx.fillStyle = "#090d12"
             ctx.fillRect(0, 0, width, height)
 
-            var headerH = 92
-            var footerH = 36
+            var headerH = root.compactUi ? 78 : 92
+            var footerH = root.compactUi ? 30 : 36
             var plotLeft = 18
             var plotRight = width - 18
             var plotTop = headerH
@@ -205,29 +206,22 @@ Rectangle {
         font.bold: true
     }
 
-    Text {
-        anchors.right: parent.right
-        anchors.rightMargin: 18
-        anchors.top: parent.top
-        anchors.topMargin: 17
-        text: receiver ? (receiver.running ? "FFT 采集中" : "停止") : ""
-        color: receiver && receiver.running ? String(root.accent) : "#9fb2c0"
-        font.pixelSize: 12
-        font.bold: true
-    }
-
     Row {
         anchors.left: parent.left
         anchors.leftMargin: 18
         anchors.right: parent.right
         anchors.rightMargin: 18
         anchors.top: parent.top
-        anchors.topMargin: 52
-        height: 26
-        spacing: 10
+        anchors.topMargin: root.compactUi ? 46 : 52
+        height: root.compactUi ? 22 : 26
+        spacing: root.compactUi ? 6 : 10
 
         Repeater {
-            model: [
+            model: root.compactUi ? [
+                { "label": "平均", "value": root.percentText(root.averageLevel) },
+                { "label": "峰值", "value": root.percentText(root.peakLevel) },
+                { "label": "音频", "value": receiver ? root.percentText(receiver.audioLevel) : "0%" }
+            ] : [
                 { "label": "平均能量", "value": root.percentText(root.averageLevel) },
                 { "label": "峰值强度", "value": root.percentText(root.peakLevel) },
                 { "label": "峰值频率", "value": root.frequencyLabel(root.peakFrequencyHz) },
@@ -236,7 +230,7 @@ Rectangle {
             ]
 
             Rectangle {
-                width: Math.max(118, (parent.width - 40) / 5)
+                width: root.compactUi ? (parent.width - parent.spacing * 2) / 3 : (parent.width - parent.spacing * 4) / 5
                 height: parent.height
                 radius: 7
                 color: "#11181e"

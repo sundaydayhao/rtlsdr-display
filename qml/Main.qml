@@ -7,6 +7,9 @@ Window {
     height: 720
     visibility: Window.FullScreen
     color: "#101316"
+    property bool compactUi: width <= 900 || height <= 520
+    property int pageMargin: compactUi ? 16 : 40
+    property int footerHeight: compactUi ? 42 : 56
     property var activeFeature: null
     property var features: [
         {
@@ -67,8 +70,8 @@ Window {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: footer.top
-        anchors.leftMargin: 40
-        anchors.rightMargin: 40
+        anchors.leftMargin: root.pageMargin
+        anchors.rightMargin: root.pageMargin
         contentWidth: width
         contentHeight: grid.y + grid.height + 28
         clip: true
@@ -76,17 +79,17 @@ Window {
 
         Grid {
             id: grid
-            x: 8
-            y: 18
+            x: root.compactUi ? 0 : 8
+            y: root.compactUi ? 12 : 18
             width: parent.width - 16
-            spacing: 18
-            columns: Math.max(1, Math.floor(width / 248))
+            spacing: root.compactUi ? 12 : 18
+            columns: Math.max(1, Math.floor(width / (root.compactUi ? 224 : 248)))
 
             Repeater {
                 model: root.features
 
                 AppTile {
-                    width: Math.max(210, Math.min(260, (grid.width - grid.spacing * (grid.columns - 1)) / grid.columns))
+                    width: Math.max(root.compactUi ? 190 : 210, Math.min(root.compactUi ? 246 : 260, (grid.width - grid.spacing * (grid.columns - 1)) / grid.columns))
                     height: 176
                     appId: modelData.id
                     title: modelData.title
@@ -107,8 +110,8 @@ Window {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: footer.top
-        anchors.leftMargin: 40
-        anchors.rightMargin: 40
+        anchors.leftMargin: root.pageMargin
+        anchors.rightMargin: root.pageMargin
         visible: root.activeFeature !== null
         feature: root.activeFeature
 
@@ -161,7 +164,7 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 56
+        height: root.footerHeight
         color: "#0a0d10"
 
         Rectangle {
@@ -174,9 +177,9 @@ Window {
 
         Text {
             anchors.left: parent.left
-            anchors.leftMargin: 48
+            anchors.leftMargin: root.pageMargin + 8
             anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 96
+            width: parent.width - (root.pageMargin + 8) * 2
             elide: Text.ElideRight
             text: root.activeFeature && root.activeFeature.id === "adsb" ? adsbReceiver.status
                   : root.activeFeature && root.activeFeature.id === "fm" ? fmReceiver.status
@@ -186,7 +189,7 @@ Window {
                   : root.activeFeature && root.activeFeature.id === "scanner" ? scannerReceiver.status
                   : appLauncher.lastMessage
             color: "#c7d0d9"
-            font.pixelSize: 14
+            font.pixelSize: root.compactUi ? 12 : 14
         }
     }
 }

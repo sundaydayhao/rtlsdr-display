@@ -11,6 +11,11 @@ Item {
     property color accent: feature ? feature.accent : "#4cc9f0"
     property bool adsbShowTracks: true
     property bool recordPlaybackMode: false
+    property bool compactUi: width <= 820 || height <= 460
+    property int edgeMargin: compactUi ? 14 : 22
+    property int contentTopMargin: compactUi ? 62 : 92
+    property int contentBottomMargin: compactUi ? 12 : 34
+    property int sidePanelGap: compactUi ? 14 : 22
 
     signal closeRequested()
     signal startRequested(string appId)
@@ -147,8 +152,8 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        anchors.topMargin: 12
-        anchors.bottomMargin: 18
+        anchors.topMargin: root.compactUi ? 6 : 12
+        anchors.bottomMargin: root.compactUi ? 8 : 18
         radius: 8
         color: "#151a1f"
         border.color: "#29343d"
@@ -157,11 +162,11 @@ Item {
     Rectangle {
         id: backButton
         anchors.left: parent.left
-        anchors.leftMargin: 18
+        anchors.leftMargin: root.compactUi ? 14 : 18
         anchors.top: parent.top
-        anchors.topMargin: 30
-        width: 44
-        height: 36
+        anchors.topMargin: root.compactUi ? 16 : 30
+        width: root.compactUi ? 38 : 44
+        height: root.compactUi ? 32 : 36
         radius: 8
         color: backMouse.pressed ? "#29323a" : backMouse.containsMouse ? "#222a31" : "#101419"
         border.color: "#313c46"
@@ -197,18 +202,18 @@ Item {
     Rectangle {
         id: iconPlate
         anchors.left: backButton.right
-        anchors.leftMargin: 16
+        anchors.leftMargin: root.compactUi ? 10 : 16
         anchors.verticalCenter: backButton.verticalCenter
-        width: 44
-        height: 44
+        width: root.compactUi ? 36 : 44
+        height: root.compactUi ? 36 : 44
         radius: 8
         color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.16)
         border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.44)
 
         IconGlyph {
             anchors.centerIn: parent
-            width: 30
-            height: 30
+            width: root.compactUi ? 24 : 30
+            height: root.compactUi ? 24 : 30
             kind: root.iconKind
             accent: root.accent
         }
@@ -217,14 +222,14 @@ Item {
     Text {
         id: titleLabel
         anchors.left: iconPlate.right
-        anchors.leftMargin: 14
+        anchors.leftMargin: root.compactUi ? 10 : 14
         anchors.right: launchButton.left
-        anchors.rightMargin: 18
+        anchors.rightMargin: root.compactUi ? 10 : 18
         anchors.top: parent.top
-        anchors.topMargin: 28
+        anchors.topMargin: root.compactUi ? 14 : 28
         text: root.title
         color: "#f6f8fb"
-        font.pixelSize: 24
+        font.pixelSize: root.compactUi ? 20 : 24
         font.bold: true
         elide: Text.ElideRight
     }
@@ -233,20 +238,20 @@ Item {
         anchors.left: titleLabel.left
         anchors.right: titleLabel.right
         anchors.top: titleLabel.bottom
-        anchors.topMargin: 5
+        anchors.topMargin: root.compactUi ? 3 : 5
         text: root.subtitle
         color: "#9baab7"
-        font.pixelSize: 13
+        font.pixelSize: root.compactUi ? 12 : 13
         elide: Text.ElideRight
     }
 
     Rectangle {
         id: launchButton
         anchors.right: parent.right
-        anchors.rightMargin: 22
+        anchors.rightMargin: root.compactUi ? 14 : 22
         anchors.verticalCenter: backButton.verticalCenter
-        width: 112
-        height: 40
+        width: root.compactUi ? 92 : 112
+        height: root.compactUi ? 34 : 40
         radius: 8
         color: launchMouse.pressed ? Qt.darker(root.accent, 1.35) : launchMouse.containsMouse ? Qt.lighter(root.accent, 1.08) : root.accent
 
@@ -260,7 +265,7 @@ Item {
                   || (root.appId === "waterfall" && waterfallReceiver.running)
                   || (root.appId === "scanner" && scannerReceiver.running) ? "停止" : "启动"
             color: "#071014"
-            font.pixelSize: 15
+            font.pixelSize: root.compactUi ? 14 : 15
             font.bold: true
         }
 
@@ -289,17 +294,17 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        anchors.leftMargin: 22
-        anchors.rightMargin: 22
-        anchors.topMargin: 92
-        anchors.bottomMargin: 34
+        anchors.leftMargin: root.edgeMargin
+        anchors.rightMargin: root.edgeMargin
+        anchors.topMargin: root.contentTopMargin
+        anchors.bottomMargin: root.contentBottomMargin
 
         Loader {
             id: visualLoader
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: Math.max(420, parent.width - sidePanel.width - 22)
+            width: Math.max(root.compactUi ? 320 : 420, parent.width - sidePanel.width - root.sidePanelGap)
             sourceComponent: root.appId === "adsb" ? radarComponent
                              : root.appId === "fm" ? fmComponent
                              : root.appId === "record" ? recordComponent
@@ -314,19 +319,20 @@ Item {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: Math.min(360, parent.width * 0.32)
+            width: Math.min(root.compactUi ? 252 : 360, parent.width * (root.compactUi ? 0.34 : 0.32))
             radius: 8
             color: "#101419"
             border.color: "#2b3640"
+            clip: true
 
             Text {
                 id: panelTitle
                 anchors.left: parent.left
-                anchors.leftMargin: 18
+                anchors.leftMargin: root.compactUi ? 12 : 18
                 anchors.right: parent.right
-                anchors.rightMargin: 18
+                anchors.rightMargin: root.compactUi ? 12 : 18
                 anchors.top: parent.top
-                anchors.topMargin: 18
+                anchors.topMargin: root.compactUi ? 12 : 18
                 text: root.appId === "adsb" ? "ADS-B 接收"
                       : root.appId === "fm" ? "FM 接收"
                       : root.appId === "record" ? "I/Q 录制"
@@ -335,116 +341,22 @@ Item {
                       : root.appId === "scanner" ? "宽带扫描"
                       : "运行配置"
                 color: "#f3f6f8"
-                font.pixelSize: 18
+                font.pixelSize: root.compactUi ? 16 : 18
                 font.bold: true
-            }
-
-            Text {
-                id: commandLabel
-                anchors.left: panelTitle.left
-                anchors.right: panelTitle.right
-                anchors.top: panelTitle.bottom
-                anchors.topMargin: 18
-                text: root.appId === "record" ? "录制状态"
-                      : root.appId === "adsb" || root.appId === "fm"
-                        || root.appId === "sensors" || root.appId === "waterfall"
-                        || root.appId === "scanner" ? "接收状态" : "启动命令"
-                color: "#8d9daa"
-                font.pixelSize: 12
-            }
-
-            Rectangle {
-                id: commandBox
-                anchors.left: panelTitle.left
-                anchors.right: panelTitle.right
-                anchors.top: commandLabel.bottom
-                anchors.topMargin: 8
-                height: 78
-                radius: 8
-                color: "#0b0f13"
-                border.color: "#27313a"
-
-                Text {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    text: {
-                        if (root.appId === "adsb") {
-                            return adsbReceiver.status
-                        }
-                        if (root.appId === "fm") {
-                            return fmReceiver.status
-                        }
-                        if (root.appId === "record") {
-                            return recordReceiver.status
-                        }
-                        if (root.appId === "sensors") {
-                            return sensorReceiver.status
-                        }
-                        if (root.appId === "waterfall") {
-                            return waterfallReceiver.status
-                        }
-                        if (root.appId === "scanner") {
-                            return scannerReceiver.status
-                        }
-                        var cmd = appLauncher.commandFor(root.appId)
-                        return cmd.length > 0 ? cmd : "未配置"
-                    }
-                    color: root.appId === "adsb" || root.appId === "fm"
-                           || root.appId === "record" || root.appId === "sensors"
-                           || root.appId === "waterfall" || root.appId === "scanner"
-                           || appLauncher.commandFor(root.appId).length > 0 ? "#d8e2ea" : "#788895"
-                    font.pixelSize: 13
-                    wrapMode: Text.Wrap
-                    elide: Text.ElideRight
-                }
             }
 
             Column {
                 id: metricsColumn
                 anchors.left: panelTitle.left
                 anchors.right: panelTitle.right
-                anchors.top: commandBox.bottom
-                anchors.topMargin: 20
-                spacing: root.appId === "fm" || root.appId === "record" ? 8 : 12
-
-                StatusPill {
-                    width: parent.width
-                    label: root.appId === "adsb" ? (adsbReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
-                           : root.appId === "fm" ? (fmReceiver.running ? "FM：播放中" : "FM：停止")
-                           : root.appId === "record" ? (recordReceiver.running ? "I/Q：录制中" : "I/Q：停止")
-                           : root.appId === "sensors" ? (sensorReceiver.running ? "RTL-SDR：解码中" : "RTL-SDR：停止")
-                           : root.appId === "waterfall" ? (waterfallReceiver.running ? "RTL-SDR：接收中" : "RTL-SDR：停止")
-                           : root.appId === "scanner" ? (scannerReceiver.running ? "RTL-SDR：扫描中" : "RTL-SDR：停止")
-                           : "解调：SDR 后端"
-                    accent: root.accent
-                }
-
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId !== "fm"
-                    label: root.appId === "fm" ? "模式：WFM / NFM"
-                           : root.appId === "adsb" ? ("设备：" + adsbReceiver.deviceCount + " 个")
-                           : root.appId === "record" ? ("设备：" + recordReceiver.deviceCount + " 个")
-                           : root.appId === "sensors" ? ("设备：" + sensorReceiver.deviceCount + " 个")
-                           : root.appId === "waterfall" ? ("设备：" + waterfallReceiver.deviceCount + " 个")
-                           : root.appId === "scanner" ? ("设备：" + scannerReceiver.deviceCount + " 个")
-                           : "平台：本机 / RK3566"
-                    accent: "#80ed99"
-                }
-
+                anchors.top: panelTitle.bottom
+                anchors.topMargin: root.compactUi ? 10 : 14
+                spacing: root.compactUi ? 6 : (root.appId === "fm" || root.appId === "record" ? 8 : 12)
 
                 Column {
                     width: parent.width
                     visible: root.appId === "fm"
                     spacing: 6
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: "频率 MHz"
-                        color: "#8d9daa"
-                        font.pixelSize: 12
-                    }
 
                     Rectangle {
                         width: parent.width
@@ -548,25 +460,6 @@ Item {
                         }
                     }
 
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: root.mhzText(fmReceiver.minFrequencyHz, 3)
-                              + " - " + root.mhzText(fmReceiver.maxFrequencyHz, 3) + " MHz"
-                        color: "#788895"
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
-
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: "模式"
-                        color: "#8d9daa"
-                        font.pixelSize: 12
-                    }
-
                     Row {
                         id: fmModeRow
                         width: parent.width
@@ -605,14 +498,6 @@ Item {
                                 }
                             }
                         }
-                    }
-
-                    Text {
-                        width: parent.width
-                        visible: false
-                        text: "音量"
-                        color: "#8d9daa"
-                        font.pixelSize: 12
                     }
 
                     Rectangle {
@@ -1234,20 +1119,6 @@ Item {
                     }
                 }
 
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "waterfall"
-                    label: "Tuner：" + waterfallReceiver.tunerName
-                    accent: "#f4d35e"
-                }
-
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "waterfall"
-                    label: "采样：" + root.sampleRateText(waterfallReceiver.sampleRateHz)
-                    accent: "#ff5c8a"
-                }
-
                 Column {
                     width: parent.width
                     visible: root.appId === "waterfall"
@@ -1372,42 +1243,7 @@ Item {
                     }
                 }
 
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "adsb"
-                    label: "飞机：" + adsbReceiver.aircraftCount + " 架"
-                    accent: "#f4d35e"
-                }
-
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "adsb"
-                    label: "有效消息：" + adsbReceiver.validMessages
-                    accent: "#ff5c8a"
-                }
-
                 // ---- Scanner controls ----
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "scanner"
-                    label: "Tuner：" + scannerReceiver.tunerName
-                    accent: "#f4d35e"
-                }
-
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "scanner"
-                    label: "采样：" + root.sampleRateText(scannerReceiver.sampleRateHz)
-                    accent: "#ff5c8a"
-                }
-
-                StatusPill {
-                    width: parent.width
-                    visible: root.appId === "scanner"
-                    label: "频点：" + scannerReceiver.totalBins + " 个"
-                    accent: "#a855f7"
-                }
-
                 Column {
                     width: parent.width
                     visible: root.appId === "scanner"
@@ -1956,14 +1792,6 @@ Item {
                         }
                     }
 
-                    Text {
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: recordReceiver.status
-                        color: "#a9bac6"
-                        font.pixelSize: 14
-                        elide: Text.ElideRight
-                    }
                 }
             }
 

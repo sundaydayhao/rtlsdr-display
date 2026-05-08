@@ -309,14 +309,4 @@ Rectangle {
         font.bold: true
     }
 
-    Text {
-        anchors.right: parent.right
-        anchors.rightMargin: 18
-        anchors.top: parent.top
-        anchors.topMargin: 17
-        text: receiver ? (receiver.running ? "接收中" : "停止") : ""
-        color: receiver && receiver.running ? "#80ed99" : "#9fb2c0"
-        font.pixelSize: 12
-        font.bold: true
-    }
 }

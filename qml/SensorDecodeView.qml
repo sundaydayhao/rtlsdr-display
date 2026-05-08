@@ -5,6 +5,7 @@ Rectangle {
 
     property color accent: "#2dd4bf"
     property var receiver: null
+    property bool compactUi: width <= 520 || height <= 380
 
     radius: 8
     color: "#0b1115"
@@ -38,46 +39,48 @@ Rectangle {
     }
 
     Column {
+        id: overviewColumn
         anchors.left: parent.left
-        anchors.leftMargin: 34
+        anchors.leftMargin: root.compactUi ? 18 : 34
         anchors.right: parent.right
-        anchors.rightMargin: 34
+        anchors.rightMargin: root.compactUi ? 18 : 34
         anchors.top: parent.top
-        anchors.topMargin: 30
-        spacing: 18
+        anchors.topMargin: root.compactUi ? 16 : 30
+        spacing: root.compactUi ? 10 : 18
 
         // ── Frequency + signal row ──────────────────────────────────────
         Row {
             width: parent.width
-            height: 72
-            spacing: 18
+            height: root.compactUi ? 58 : 72
+            spacing: root.compactUi ? 10 : 18
 
             Column {
-                width: parent.width - 220
+                width: parent.width - signalPanel.width - parent.spacing
                 height: parent.height
-                spacing: 7
+                spacing: root.compactUi ? 4 : 7
 
                 Text {
                     width: parent.width
                     text: receiver ? root.mhzText(receiver.centerFrequencyHz) + " MHz" : ""
                     color: "#f6f8fb"
-                    font.pixelSize: 42
+                    font.pixelSize: root.compactUi ? 32 : 42
                     font.bold: true
                     elide: Text.ElideRight
                 }
 
                 Text {
                     width: parent.width
-                    text: receiver ? receiver.bandLabel + " / " + (receiver.running ? "解码中" : "停止") : ""
+                    text: receiver ? receiver.bandLabel : ""
                     color: receiver && receiver.running ? root.accent : "#8fa0ad"
-                    font.pixelSize: 15
+                    font.pixelSize: root.compactUi ? 13 : 15
                     font.bold: true
                     elide: Text.ElideRight
                 }
             }
 
             Rectangle {
-                width: 202
+                id: signalPanel
+                width: root.compactUi ? 150 : 202
                 height: parent.height
                 radius: 8
                 color: "#101820"
@@ -92,7 +95,7 @@ Rectangle {
                     anchors.topMargin: 12
                     text: "信号"
                     color: "#8293a0"
-                    font.pixelSize: 12
+                    font.pixelSize: root.compactUi ? 11 : 12
                     elide: Text.ElideRight
                 }
 
@@ -103,9 +106,9 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: 14
                     anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 13
-                    height: 28
-                    spacing: 5
+                    anchors.bottomMargin: root.compactUi ? 10 : 13
+                    height: root.compactUi ? 22 : 28
+                    spacing: root.compactUi ? 4 : 5
 
                     Repeater {
                         model: 14
@@ -125,8 +128,8 @@ Rectangle {
         // ── Band quick-select buttons ───────────────────────────────────
         Row {
             width: parent.width
-            height: 36
-            spacing: 10
+            height: root.compactUi ? 30 : 36
+            spacing: root.compactUi ? 8 : 10
 
             Repeater {
                 model: [
@@ -136,8 +139,8 @@ Rectangle {
                 ]
 
                 Rectangle {
-                    width: 90
-                    height: 36
+                    width: root.compactUi ? 80 : 90
+                    height: parent.height
                     radius: 6
                     color: receiver && receiver.bandLabel.indexOf(modelData.label.split(" ")[0]) >= 0
                            ? root.accent : "#1a2530"
@@ -163,8 +166,8 @@ Rectangle {
 
             // Clear button
             Rectangle {
-                width: 72
-                height: 36
+                width: root.compactUi ? 60 : 72
+                height: parent.height
                 radius: 6
                 color: "#1a2530"
                 border.color: "#2b3a47"
@@ -186,8 +189,8 @@ Rectangle {
         // ── Counter row ─────────────────────────────────────────────────
         Row {
             width: parent.width
-            height: 70
-            spacing: 14
+            height: root.compactUi ? 54 : 70
+            spacing: root.compactUi ? 10 : 14
 
             Repeater {
                 model: [
@@ -225,7 +228,7 @@ Rectangle {
                         anchors.bottomMargin: 10
                         text: modelData.value
                         color: "#eef6fb"
-                        font.pixelSize: 25
+                        font.pixelSize: root.compactUi ? 20 : 25
                         font.bold: true
                         elide: Text.ElideRight
                     }
@@ -237,15 +240,13 @@ Rectangle {
     // ── Section title ───────────────────────────────────────────────────
     Text {
         id: listTitle
-        anchors.left: parent.left
-        anchors.leftMargin: 34
-        anchors.right: parent.right
-        anchors.rightMargin: 34
-        anchors.top: parent.top
-        anchors.topMargin: 268
+        anchors.left: overviewColumn.left
+        anchors.right: overviewColumn.right
+        anchors.top: overviewColumn.bottom
+        anchors.topMargin: root.compactUi ? 10 : 14
         text: "最近报文"
         color: "#eef6fb"
-        font.pixelSize: 18
+        font.pixelSize: root.compactUi ? 16 : 18
         font.bold: true
         elide: Text.ElideRight
     }
@@ -256,18 +257,18 @@ Rectangle {
         anchors.left: listTitle.left
         anchors.right: listTitle.right
         anchors.top: listTitle.bottom
-        anchors.topMargin: 12
+        anchors.topMargin: root.compactUi ? 8 : 12
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
+        anchors.bottomMargin: root.compactUi ? 14 : 24
         model: receiver ? receiver.eventModel : null
-        spacing: 10
+        spacing: root.compactUi ? 6 : 10
         clip: true
 
         delegate: Rectangle {
             id: card
             width: ListView.view.width
             // Height adapts to content: TPMS and meter cards are taller
-            height: (category === "tpms" || category === "meter") ? 96 : 72
+            height: root.compactUi ? ((category === "tpms" || category === "meter") ? 84 : 64) : ((category === "tpms" || category === "meter") ? 96 : 72)
             radius: 8
             color: "#101820"
             border.color: Qt.rgba(
