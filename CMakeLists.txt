@@ -80,7 +80,7 @@ set(PROJECT_SOURCES
 )
 
 if(QT_VERSION_MAJOR EQUAL 6)
-    qt_add_executable(rtlsdr-panel ${PROJECT_SOURCES})
+    qt_add_executable(rtlsdr-panel MANUAL_FINALIZATION ${PROJECT_SOURCES})
 else()
     add_executable(rtlsdr-panel ${PROJECT_SOURCES})
 endif()
