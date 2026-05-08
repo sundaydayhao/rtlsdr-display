@@ -400,18 +400,24 @@ Rectangle {
                 spacing: 10
 
                 Text {
+                    id: meterTypeLabel
                     text: meterTypeName
                     color: "#60a5fa"
                     font.pixelSize: 13
                     font.bold: true
-                    anchors.verticalCenter: parent.children[1].verticalCenter
+                    anchors.verticalCenter: meterValueLabel.verticalCenter
                 }
 
                 Text {
-                    text: meterConsumption.toFixed(3) + " " + meterUnit
+                    id: meterValueLabel
+                    width: parent.width - meterTypeLabel.implicitWidth - parent.spacing
+                    text: meterConsumption > 0
+                          ? meterConsumption.toFixed(3) + " " + meterUnit
+                          : summary
                     color: "#e2e8f0"
-                    font.pixelSize: 20
-                    font.bold: true
+                    font.pixelSize: meterConsumption > 0 ? 20 : 12
+                    font.bold: meterConsumption > 0
+                    elide: Text.ElideRight
                 }
             }
 

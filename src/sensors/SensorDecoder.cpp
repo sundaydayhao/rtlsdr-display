@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace {
 struct BitRow
@@ -888,9 +889,6 @@ bool appendGenericRkeRaw(const QList<BitRow> &rows,
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Toyota / Subaru RKE 遥控钥匙
-// 支持多种车型：短脉冲 300–450 µs，长脉冲 600–840 µs
-// 帧长 40 / 48 / 56 bit（含滚动码，raw 输出）
-// 参考：rtl_433 Toyota-COROLLA14 decoder
 // ─────────────────────────────────────────────────────────────────────────────
 bool appendToyotaRemote(const QList<BitRow> &rows,
                         int expectedBits,
@@ -903,7 +901,6 @@ bool appendToyotaRemote(const QList<BitRow> &rows,
         if (row.bits.size() != expectedBits) {
             continue;
         }
-        // 排除全 0 / 全 1 噪声帧
         const QVector<int> b = bytesForBits(row.bits);
         bool allSame = true;
         for (int i = 1; i < b.size(); ++i) {
@@ -948,38 +945,22 @@ bool appendToyotaRemote(const QList<BitRow> &rows,
 QString securityCommandText(int command)
 {
     switch (command) {
-    case 0x0:
-        return QStringLiteral("test");
-    case 0x1:
-        return QStringLiteral("disarm");
-    case 0x2:
-        return QStringLiteral("alarm");
-    case 0x3:
-        return QStringLiteral("tamper");
-    case 0x4:
-        return QStringLiteral("home");
-    case 0x5:
-        return QStringLiteral("on/water");
-    case 0x6:
-        return QStringLiteral("home-zone");
-    case 0x7:
-        return QStringLiteral("close/normal");
-    case 0x8:
-        return QStringLiteral("arm");
-    case 0xa:
-        return QStringLiteral("motion");
-    case 0xb:
-        return QStringLiteral("tamper/24h");
-    case 0xc:
-        return QStringLiteral("closing");
-    case 0xd:
-        return QStringLiteral("low-battery");
-    case 0xe:
-        return QStringLiteral("open");
-    case 0xf:
-        return QStringLiteral("battery");
-    default:
-        return QStringLiteral("cmd-%1").arg(command, 0, 16).toUpper();
+    case 0x0: return QStringLiteral("test");
+    case 0x1: return QStringLiteral("disarm");
+    case 0x2: return QStringLiteral("alarm");
+    case 0x3: return QStringLiteral("tamper");
+    case 0x4: return QStringLiteral("home");
+    case 0x5: return QStringLiteral("on/water");
+    case 0x6: return QStringLiteral("home-zone");
+    case 0x7: return QStringLiteral("close/normal");
+    case 0x8: return QStringLiteral("arm");
+    case 0xa: return QStringLiteral("motion");
+    case 0xb: return QStringLiteral("tamper/24h");
+    case 0xc: return QStringLiteral("closing");
+    case 0xd: return QStringLiteral("low-battery");
+    case 0xe: return QStringLiteral("open");
+    case 0xf: return QStringLiteral("battery");
+    default:  return QStringLiteral("cmd-%1").arg(command, 0, 16).toUpper();
     }
 }
 
@@ -1168,6 +1149,258 @@ bool appendTpmsFromRows(const QList<BitRow> &rows,
     return false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// M-Bus / wM-Bus 无线抄表报文解码
+//
+// 支持协议：
+//   1. 国内 433 MHz OOK 抄表协议
+//      同步头：0xAA 0xAA 0x2D 0xD4 + 地址(4B) + 数据(NB) + CRC16
+//   2. Wireless M-Bus (EN 13757-4) Mode T / Mode C
+//      同步字：0x543D (Mode T) / 0x7696 (Mode C)
+//      帧头：L(1B) + C(1B) + M(2B) + A(6B) + CI(1B) + 数据
+//      编码：曼彻斯特（01->0, 10->1）
+// ─────────────────────────────────────────────────────────────────────────────
+
+static std::vector<uint8_t> bitRowToBytes(const QVector<int> &bits)
+{
+    std::vector<uint8_t> bytes;
+    bytes.reserve(static_cast<size_t>(bits.size() / 8));
+    for (int i = 0; i + 7 < bits.size(); i += 8) {
+        uint8_t byte = 0;
+        for (int b = 0; b < 8; ++b)
+            byte = static_cast<uint8_t>((byte << 1) | (bits[i + b] ? 1 : 0));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}
+
+static bool manchesterDecodeRow(const QVector<int> &bits, std::vector<uint8_t> &decoded)
+{
+    if (bits.size() < 16)
+        return false;
+    std::vector<uint8_t> dataBits;
+    dataBits.reserve(static_cast<size_t>(bits.size() / 2));
+    for (int i = 0; i + 1 < bits.size(); i += 2) {
+        const int b0 = bits[i]   ? 1 : 0;
+        const int b1 = bits[i+1] ? 1 : 0;
+        if (b0 == 0 && b1 == 1)
+            dataBits.push_back(0);
+        else if (b0 == 1 && b1 == 0)
+            dataBits.push_back(1);
+        else
+            return false;
+    }
+    for (size_t i = 0; i + 7 < dataBits.size(); i += 8) {
+        uint8_t byte = 0;
+        for (int b = 0; b < 8; ++b)
+            byte = static_cast<uint8_t>((byte << 1) | dataBits[i + b]);
+        decoded.push_back(byte);
+    }
+    return !decoded.empty();
+}
+
+static uint16_t mbusCrc16(const std::vector<uint8_t> &data, int start, int len)
+{
+    uint16_t crc = 0xFFFF;
+    for (int i = start; i < start + len && i < static_cast<int>(data.size()); ++i) {
+        crc ^= static_cast<uint16_t>(data[static_cast<size_t>(i)] << 8);
+        for (int j = 0; j < 8; ++j) {
+            if (crc & 0x8000)
+                crc = static_cast<uint16_t>((crc << 1) ^ 0x1021);
+            else
+                crc = static_cast<uint16_t>(crc << 1);
+        }
+    }
+    return crc;
+}
+
+static QString mbusDeviceTypeStr(uint8_t type)
+{
+    switch (type) {
+    case 0x00: return QStringLiteral("其他");
+    case 0x01: return QStringLiteral("油表");
+    case 0x02: return QStringLiteral("电表");
+    case 0x03: return QStringLiteral("燃气表");
+    case 0x04: return QStringLiteral("热量表");
+    case 0x06: return QStringLiteral("温水表");
+    case 0x07: return QStringLiteral("水表");
+    case 0x08: return QStringLiteral("热量分配器");
+    case 0x0A: return QStringLiteral("冷水表");
+    case 0x0B: return QStringLiteral("热水表");
+    case 0x0C: return QStringLiteral("热量表(入口)");
+    case 0x0D: return QStringLiteral("热量表(出口)");
+    default:   return QStringLiteral("0x%1").arg(type, 2, 16, QLatin1Char('0')).toUpper();
+    }
+}
+
+static QString mbusHexStr(const std::vector<uint8_t> &bytes)
+{
+    QString hex;
+    hex.reserve(static_cast<int>(bytes.size()) * 2);
+    for (uint8_t b : bytes)
+        hex += QStringLiteral("%1").arg(b, 2, 16, QLatin1Char('0')).toUpper();
+    return hex;
+}
+
+static bool tryParseWMBusBytes(const std::vector<uint8_t> &bytes,
+                               const BitRow &row,
+                               QList<QVariantMap> *events,
+                               double frequencyHz,
+                               double signalLevel)
+{
+    for (int i = 0; i + 1 < static_cast<int>(bytes.size()); ++i) {
+        const bool isModeT = (bytes[i] == 0x54 && bytes[i + 1] == 0x3D);
+        const bool isModeC = (bytes[i] == 0x76 && bytes[i + 1] == 0x96);
+        if (!isModeT && !isModeC)
+            continue;
+
+        const int dataStart = i + 2;
+        if (dataStart + 10 > static_cast<int>(bytes.size()))
+            break;
+
+        const uint8_t  L       = bytes[dataStart];
+        const uint8_t  C       = bytes[dataStart + 1];
+        const uint16_t M       = static_cast<uint16_t>(
+            (bytes[dataStart + 3] << 8) | bytes[dataStart + 2]);
+        const uint8_t  devType = (dataStart + 9 < static_cast<int>(bytes.size()))
+                                     ? bytes[dataStart + 9] : 0;
+
+        char mfr[4] = {0};
+        mfr[0] = static_cast<char>('@' + ((M >> 10) & 0x1F));
+        mfr[1] = static_cast<char>('@' + ((M >> 5)  & 0x1F));
+        mfr[2] = static_cast<char>('@' + ( M        & 0x1F));
+
+        if (mfr[0] < 'A' || mfr[0] > 'Z' ||
+            mfr[1] < 'A' || mfr[1] > 'Z' ||
+            mfr[2] < 'A' || mfr[2] > 'Z')
+            continue;
+
+        QString addr;
+        for (int j = dataStart + 4; j < dataStart + 8 && j < static_cast<int>(bytes.size()); ++j)
+            addr += QStringLiteral("%1").arg(bytes[j], 2, 16, QLatin1Char('0')).toUpper();
+
+        const QString mfrStr     = QString::fromLatin1(mfr);
+        const QString devTypeStr = mbusDeviceTypeStr(devType);
+        const QString modeStr    = isModeT ? QStringLiteral("T") : QStringLiteral("C");
+
+        QVariantMap event = eventBase(
+            QStringLiteral("wM-Bus-Mode%1").arg(modeStr),
+            QStringLiteral("Wireless M-Bus EN13757-4 Mode%1").arg(modeStr),
+            row, frequencyHz, signalLevel);
+        event.insert(QStringLiteral("category"),        QStringLiteral("meter"));
+        event.insert(QStringLiteral("deviceId"),        addr);
+        event.insert(QStringLiteral("channel"),         mfrStr);
+        event.insert(QStringLiteral("hasBattery"),      false);
+        event.insert(QStringLiteral("batteryOk"),       false);
+        event.insert(QStringLiteral("hasTemperature"),  false);
+        event.insert(QStringLiteral("temperatureC"),    0.0);
+        event.insert(QStringLiteral("hasHumidity"),     false);
+        event.insert(QStringLiteral("humidity"),        0);
+        event.insert(QStringLiteral("meterConsumption"), 0.0);
+        event.insert(QStringLiteral("meterUnit"),       QString());
+        event.insert(QStringLiteral("meterTypeName"),   devTypeStr);
+        event.insert(QStringLiteral("raw"),             mbusHexStr(bytes));
+        finishEvent(&event);
+        event.insert(QStringLiteral("summary"),
+                     QStringLiteral("ID %1 / %2 / %3 / L=%4 C=0x%5")
+                         .arg(addr, mfrStr, devTypeStr)
+                         .arg(L)
+                         .arg(C, 2, 16, QLatin1Char('0')).toUpper());
+        events->append(event);
+        return true;
+    }
+    return false;
+}
+
+bool appendMBusFromRows(const QList<BitRow> &rows,
+                        QList<QVariantMap> *events,
+                        double frequencyHz,
+                        double signalLevel)
+{
+    for (const BitRow &row : rows) {
+        if (row.bits.size() < 80)
+            continue;
+
+        // Method 1: direct byte parse (domestic 433 MHz OOK AMR)
+        {
+            const std::vector<uint8_t> bytes = bitRowToBytes(row.bits);
+            if (bytes.size() >= 10) {
+                for (int i = 0; i + 3 < static_cast<int>(bytes.size()); ++i) {
+                    if (bytes[i]   != 0xAA || bytes[i+1] != 0xAA ||
+                        bytes[i+2] != 0x2D || bytes[i+3] != 0xD4)
+                        continue;
+
+                    const int syncPos = i + 4;
+                    if (syncPos + 6 > static_cast<int>(bytes.size()))
+                        break;
+
+                    QString addr;
+                    for (int j = syncPos; j < syncPos + 4; ++j)
+                        addr += QStringLiteral("%1").arg(bytes[j], 2, 16, QLatin1Char('0')).toUpper();
+
+                    int dataLen = static_cast<int>(bytes.size()) - syncPos - 4 - 2;
+                    if (dataLen < 0) dataLen = 0;
+
+                    bool crcOk = false;
+                    if (syncPos + 4 + dataLen + 2 <= static_cast<int>(bytes.size())) {
+                        const uint16_t calcCrc  = mbusCrc16(bytes, syncPos, 4 + dataLen);
+                        const uint16_t frameCrc = static_cast<uint16_t>(
+                            (bytes[syncPos + 4 + dataLen] << 8) |
+                             bytes[syncPos + 4 + dataLen + 1]);
+                        crcOk = (calcCrc == frameCrc);
+                    }
+
+                    QString reading;
+                    for (int j = syncPos + 4;
+                         j < syncPos + 4 + std::min(dataLen, 4); ++j)
+                        reading += QStringLiteral("%1").arg(bytes[j], 2, 16, QLatin1Char('0'));
+
+                    QVariantMap event = eventBase(
+                        QStringLiteral("国内433MHz抄表"),
+                        QStringLiteral("433 MHz OOK AMR"),
+                        row, frequencyHz, signalLevel);
+                    event.insert(QStringLiteral("category"),        QStringLiteral("meter"));
+                    event.insert(QStringLiteral("deviceId"),        addr);
+                    event.insert(QStringLiteral("channel"),
+                                 crcOk ? QStringLiteral("CRC OK") : QStringLiteral("CRC?"));
+                    event.insert(QStringLiteral("hasBattery"),      false);
+                    event.insert(QStringLiteral("batteryOk"),       false);
+                    event.insert(QStringLiteral("hasTemperature"),  false);
+                    event.insert(QStringLiteral("temperatureC"),    0.0);
+                    event.insert(QStringLiteral("hasHumidity"),     false);
+                    event.insert(QStringLiteral("humidity"),        0);
+                    event.insert(QStringLiteral("meterConsumption"), 0.0);
+                    event.insert(QStringLiteral("meterUnit"),       QString());
+                    event.insert(QStringLiteral("meterTypeName"),   QStringLiteral("抄表"));
+                    event.insert(QStringLiteral("raw"),             mbusHexStr(bytes));
+                    finishEvent(&event);
+                    event.insert(QStringLiteral("summary"),
+                                 QStringLiteral("ID %1 / 读数 %2%3")
+                                     .arg(addr,
+                                          reading.isEmpty() ? QStringLiteral("--") : reading,
+                                          crcOk ? QStringLiteral(" / CRC OK") : QString()));
+                    events->append(event);
+                    return true;
+                }
+
+                if (tryParseWMBusBytes(bytes, row, events, frequencyHz, signalLevel))
+                    return true;
+            }
+        }
+
+        // Method 2: Manchester decode (wM-Bus Mode T / Mode C)
+        {
+            std::vector<uint8_t> manchBytes;
+            if (manchesterDecodeRow(row.bits, manchBytes) && manchBytes.size() >= 10) {
+                if (tryParseWMBusBytes(manchBytes, row, events, frequencyHz, signalLevel))
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void applyCategoryDefaults(QList<QVariantMap> *events)
 {
     for (QVariantMap &event : *events) {
@@ -1193,7 +1426,7 @@ void applyCategoryDefaults(QList<QVariantMap> *events)
         }
     }
 }
-}
+} // namespace
 
 QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
                                          double frequencyHz,
@@ -1221,9 +1454,7 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     if (!decodedRke) {
         decodedRke = appendHcs361(hcs361Sync833Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 833 bps"),
-                                  &events,
-                                  frequencyHz,
-                                  signalLevel);
+                                  &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> hcs361Sync1667Rows = pwmRows(pulses, 200, 400, 600);
@@ -1231,9 +1462,7 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     if (!decodedRke) {
         decodedRke = appendHcs361(hcs361Sync1667Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 1667 bps"),
-                                  &events,
-                                  frequencyHz,
-                                  signalLevel);
+                                  &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> hcs361NoSync833Rows = pwmRows(pulses, 200, 400, 1200);
@@ -1241,9 +1470,7 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     if (!decodedRke) {
         decodedRke = appendHcs361(hcs361NoSync833Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 no-sync"),
-                                  &events,
-                                  frequencyHz,
-                                  signalLevel);
+                                  &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> hcs361NoSync1667Rows = pwmRows(pulses, 100, 200, 600);
@@ -1251,9 +1478,7 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
     if (!decodedRke) {
         decodedRke = appendHcs361(hcs361NoSync1667Frames,
                                   QStringLiteral("OOK PWM KeeLoq HCS361 fast"),
-                                  &events,
-                                  frequencyHz,
-                                  signalLevel);
+                                  &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> chryslerRows = pwmRows(pulses, 350, 700, 4200);
@@ -1269,7 +1494,6 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
         decodedRke = appendAudiovoxRemote(audiovoxFrames, &events, frequencyHz, signalLevel);
     }
 
-    // Toyota / Subaru RKE：覆盖 Corolla 2014+（383/766 µs, 56 bit）及旧款（40/48 bit）
     const QList<BitRow> toyotaRows = pwmRows(pulses, 300, 820, 3000);
     if (!decodedRke) {
         decodedRke =
@@ -1280,65 +1504,41 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
 
     const QList<BitRow> genericRemoteRows = pwmRows(pulses, 464, 1404, 1800);
     if (!decodedRke) {
-        appendSecurityPwm(genericRemoteRows,
-                          QStringLiteral("Generic-Remote"),
-                          QStringLiteral("OOK PWM EV1527/SC226x"),
-                          2,
-                          &events,
-                          frequencyHz,
-                          signalLevel);
+        appendSecurityPwm(genericRemoteRows, QStringLiteral("Generic-Remote"),
+                          QStringLiteral("OOK PWM EV1527/SC226x"), 2,
+                          &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> keruiRows = pwmRows(pulses, 420, 960, 1100);
     if (!decodedRke) {
-        appendSecurityPwm(keruiRows,
-                          QStringLiteral("Kerui-Security"),
-                          QStringLiteral("OOK PWM x1527"),
-                          3,
-                          &events,
-                          frequencyHz,
-                          signalLevel);
+        appendSecurityPwm(keruiRows, QStringLiteral("Kerui-Security"),
+                          QStringLiteral("OOK PWM x1527"), 3,
+                          &events, frequencyHz, signalLevel);
     }
 
     const QList<BitRow> chuangoRows = pwmRows(pulses, 568, 1704, 1800);
     if (!decodedRke) {
-        appendSecurityPwm(chuangoRows,
-                          QStringLiteral("Chuango-Security"),
-                          QStringLiteral("OOK PWM x1527"),
-                          1,
-                          &events,
-                          frequencyHz,
-                          signalLevel);
+        appendSecurityPwm(chuangoRows, QStringLiteral("Chuango-Security"),
+                          QStringLiteral("OOK PWM x1527"), 1,
+                          &events, frequencyHz, signalLevel);
     }
 
     if (events.isEmpty()) {
         appendGenericPwmRaw(genericRemoteRows, QStringLiteral("OOK PWM EV1527/SC226x"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(keruiRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
             || appendGenericPwmRaw(chuangoRows, QStringLiteral("OOK PWM x1527"), &events, frequencyHz, signalLevel)
-            || appendBestRepeatedWindow(hcs200Rows,
-                                        QList<int>{56, 40, 66, 67, 64, 96, 128},
-                                        &events,
-                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
-                                        frequencyHz,
-                                        signalLevel)
-            || appendBestRepeatedWindow(hcs361Sync833Rows,
-                                        QList<int>{67, 66, 64, 96, 128},
-                                        &events,
-                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
-                                        frequencyHz,
-                                        signalLevel)
-            || appendBestRepeatedWindow(hcs361NoSync1667Rows,
-                                        QList<int>{67, 66, 64, 96, 128},
-                                        &events,
-                                        QStringLiteral("OOK PWM RKE/KeeLoq-like"),
-                                        frequencyHz,
-                                        signalLevel)
-            || appendBestRepeatedWindow(chryslerRows,
-                                        QList<int>{48, 49, 64, 66, 67},
-                                        &events,
-                                        QStringLiteral("OOK PWM car remote-like"),
-                                        frequencyHz,
-                                        signalLevel)
+            || appendBestRepeatedWindow(hcs200Rows, QList<int>{56, 40, 66, 67, 64, 96, 128},
+                                        &events, QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz, signalLevel)
+            || appendBestRepeatedWindow(hcs361Sync833Rows, QList<int>{67, 66, 64, 96, 128},
+                                        &events, QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz, signalLevel)
+            || appendBestRepeatedWindow(hcs361NoSync1667Rows, QList<int>{67, 66, 64, 96, 128},
+                                        &events, QStringLiteral("OOK PWM RKE/KeeLoq-like"),
+                                        frequencyHz, signalLevel)
+            || appendBestRepeatedWindow(chryslerRows, QList<int>{48, 49, 64, 66, 67},
+                                        &events, QStringLiteral("OOK PWM car remote-like"),
+                                        frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs200Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs361Sync833Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
             || appendGenericRkeRaw(hcs361NoSync1667Rows, QStringLiteral("OOK PWM RKE/KeeLoq-like"), &events, frequencyHz, signalLevel)
@@ -1354,6 +1554,18 @@ QList<QVariantMap> SensorDecoder::decode(const std::vector<SensorPulse> &pulses,
             || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 56), &events, frequencyHz, signalLevel)
             || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 64), &events, frequencyHz, signalLevel)
             || appendTpmsFromRows(fixedWidthRows(tpmsMediumRows, 72), &events, frequencyHz, signalLevel);
+    }
+
+    // M-Bus / wM-Bus: domestic 433 MHz OOK AMR + Wireless M-Bus EN13757-4 Mode T/C
+    if (events.isEmpty()) {
+        const QList<BitRow> mbusSlowRows = pwmRows(pulses, 300, 600, 8000);
+        const QList<BitRow> mbusMedRows  = pwmRows(pulses, 150, 300, 5000);
+        const QList<BitRow> mbusFastRows = pwmRows(pulses, 80,  160, 3000);
+        appendMBusFromRows(mbusSlowRows,  &events, frequencyHz, signalLevel)
+            || appendMBusFromRows(mbusMedRows,   &events, frequencyHz, signalLevel)
+            || appendMBusFromRows(mbusFastRows,  &events, frequencyHz, signalLevel)
+            || appendMBusFromRows(ppmOneTwoRows,  &events, frequencyHz, signalLevel)
+            || appendMBusFromRows(ppmTwoFourRows, &events, frequencyHz, signalLevel);
     }
 
     if (events.isEmpty()) {
