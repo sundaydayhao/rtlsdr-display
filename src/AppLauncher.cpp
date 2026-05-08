@@ -14,25 +14,6 @@ QString AppLauncher::lastMessage() const
     return m_lastMessage;
 }
 
-QString AppLauncher::platformHint() const
-{
-#if defined(RTLSDR_PANEL_TARGET_LABEL)
-    return QStringLiteral(RTLSDR_PANEL_TARGET_LABEL);
-#elif defined(Q_PROCESSOR_ARM_64)
-    return QStringLiteral("ARM64 / Embedded Linux");
-#elif defined(Q_PROCESSOR_ARM)
-    return QStringLiteral("ARM / Embedded Linux");
-#elif defined(Q_OS_LINUX)
-    return QStringLiteral("Linux Desktop");
-#elif defined(Q_OS_WIN)
-    return QStringLiteral("Windows Desktop");
-#elif defined(Q_OS_MACOS)
-    return QStringLiteral("macOS Desktop");
-#else
-    return QStringLiteral("Qt Runtime");
-#endif
-}
-
 QString AppLauncher::commandFor(const QString &appId) const
 {
     const QByteArray envName = envNameFor(appId).toLocal8Bit();

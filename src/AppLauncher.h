@@ -7,13 +7,11 @@ class AppLauncher : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString lastMessage READ lastMessage NOTIFY lastMessageChanged)
-    Q_PROPERTY(QString platformHint READ platformHint CONSTANT)
 
 public:
     explicit AppLauncher(QObject *parent = nullptr);
 
     QString lastMessage() const;
-    QString platformHint() const;
 
     Q_INVOKABLE QString commandFor(const QString &appId) const;
     Q_INVOKABLE bool launch(const QString &appId);

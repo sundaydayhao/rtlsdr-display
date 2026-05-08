@@ -16,14 +16,10 @@ set_property(CACHE RTLSDR_PANEL_QT_MAJOR PROPERTY STRINGS auto 5 6)
 set(RTLSDR_PANEL_TARGET "auto" CACHE STRING "Target platform: auto, desktop, rk3566, raspberrypi")
 set_property(CACHE RTLSDR_PANEL_TARGET PROPERTY STRINGS auto desktop rk3566 raspberrypi)
 
-set(RTLSDR_PANEL_TARGET_LABEL "")
-if(RTLSDR_PANEL_TARGET STREQUAL "desktop")
-    set(RTLSDR_PANEL_TARGET_LABEL "Desktop Linux")
-elseif(RTLSDR_PANEL_TARGET STREQUAL "rk3566")
-    set(RTLSDR_PANEL_TARGET_LABEL "RK3566 / Buildroot")
-elseif(RTLSDR_PANEL_TARGET STREQUAL "raspberrypi")
-    set(RTLSDR_PANEL_TARGET_LABEL "Raspberry Pi")
-elseif(NOT RTLSDR_PANEL_TARGET STREQUAL "auto")
+if(NOT RTLSDR_PANEL_TARGET STREQUAL "auto"
+        AND NOT RTLSDR_PANEL_TARGET STREQUAL "desktop"
+        AND NOT RTLSDR_PANEL_TARGET STREQUAL "rk3566"
+        AND NOT RTLSDR_PANEL_TARGET STREQUAL "raspberrypi")
     message(FATAL_ERROR "Unsupported RTLSDR_PANEL_TARGET: ${RTLSDR_PANEL_TARGET}. Use auto, desktop, rk3566, or raspberrypi.")
 endif()
 
@@ -108,13 +104,6 @@ target_compile_definitions(rtlsdr-panel
         APP_VERSION="${PROJECT_VERSION}"
         RTLSDR_PANEL_TARGET="${RTLSDR_PANEL_TARGET}"
 )
-
-if(RTLSDR_PANEL_TARGET_LABEL)
-    target_compile_definitions(rtlsdr-panel
-        PRIVATE
-            RTLSDR_PANEL_TARGET_LABEL="${RTLSDR_PANEL_TARGET_LABEL}"
-    )
-endif()
 
 install(TARGETS rtlsdr-panel RUNTIME DESTINATION bin)
 

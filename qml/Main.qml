@@ -5,10 +5,8 @@ Window {
     id: root
     width: 1280
     height: 720
-    visible: true
+    visibility: Window.FullScreen
     color: "#101316"
-    title: "RTL-SDR 控制台"
-
     property var activeFeature: null
     property var features: [
         {
@@ -63,57 +61,11 @@ Window {
         }
     }
 
-    Item {
-        id: header
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: 104
-
-        Text {
-            id: title
-            anchors.left: parent.left
-            anchors.leftMargin: 48
-            anchors.top: parent.top
-            anchors.topMargin: 28
-            text: "RTL-SDR 控制台"
-            color: "#f5f7fa"
-            font.pixelSize: 30
-            font.bold: true
-        }
-
-        Text {
-            anchors.left: title.left
-            anchors.top: title.bottom
-            anchors.topMargin: 8
-            text: "面向 RK3566 buildroot 的无线电应用入口"
-            color: "#9aa8b5"
-            font.pixelSize: 14
-        }
-
-        Row {
-            anchors.right: parent.right
-            anchors.rightMargin: 48
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 12
-
-            StatusPill {
-                label: appLauncher.platformHint
-                accent: "#4cc9f0"
-            }
-
-            StatusPill {
-                label: "Qt Quick"
-                accent: "#80ed99"
-            }
-        }
-    }
-
     Flickable {
         id: home
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: header.bottom
+        anchors.top: parent.top
         anchors.bottom: footer.top
         anchors.leftMargin: 40
         anchors.rightMargin: 40
@@ -153,7 +105,7 @@ Window {
     FeaturePage {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: header.bottom
+        anchors.top: parent.top
         anchors.bottom: footer.top
         anchors.leftMargin: 40
         anchors.rightMargin: 40
