@@ -23,6 +23,9 @@ class FmReceiver : public QObject
     Q_PROPERTY(QString modeLabel READ modeLabel NOTIFY modeChanged)
     Q_PROPERTY(double audioLevel READ audioLevel NOTIFY audioLevelChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(QVariantList audioOutputDevices READ audioOutputDevices NOTIFY audioOutputDevicesChanged)
+    Q_PROPERTY(QString audioOutputDeviceId READ audioOutputDeviceId WRITE setAudioOutputDeviceId NOTIFY audioOutputDeviceChanged)
+    Q_PROPERTY(QString audioOutputDeviceLabel READ audioOutputDeviceLabel NOTIFY audioOutputDeviceChanged)
 
 public:
     explicit FmReceiver(QObject *parent = nullptr);
@@ -42,6 +45,9 @@ public:
     QString modeLabel() const;
     double audioLevel() const;
     double volume() const;
+    QVariantList audioOutputDevices() const;
+    QString audioOutputDeviceId() const;
+    QString audioOutputDeviceLabel() const;
 
     Q_INVOKABLE void start();
     Q_INVOKABLE void stop();
@@ -49,6 +55,8 @@ public:
     Q_INVOKABLE void stepMHz(double deltaMhz);
     Q_INVOKABLE void setMode(const QString &mode);
     Q_INVOKABLE void setVolume(double volume);
+    Q_INVOKABLE void setAudioOutputDeviceId(const QString &deviceId);
+    Q_INVOKABLE void refreshAudioOutputDevices();
 
 public slots:
     void setCenterFrequencyHz(double frequencyHz);
@@ -64,6 +72,8 @@ signals:
     void modeChanged();
     void audioLevelChanged();
     void volumeChanged();
+    void audioOutputDevicesChanged();
+    void audioOutputDeviceChanged();
     void spectrumReady(const QVariantList &levels, double leftFrequencyHz, double rightFrequencyHz);
 
 private:
@@ -77,6 +87,7 @@ private:
     bool frequencyInRange(double frequencyHz) const;
     double sampleRateForMode(const QString &mode) const;
     QString normalizedMode(const QString &mode) const;
+    bool ensureSelectedAudioDeviceListed();
 
     RtlFmWorker *m_worker = nullptr;
     bool m_running = false;
@@ -92,4 +103,6 @@ private:
     QString m_mode;
     double m_audioLevel = 0.0;
     double m_volume = 0.80;
+    QVariantList m_audioOutputDevices;
+    QString m_audioOutputDeviceId;
 };

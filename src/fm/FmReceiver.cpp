@@ -4,8 +4,11 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QProcess>
+#include <QRegularExpression>
+#include <QSet>
 #include <QStringList>
 #include <QThread>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <atomic>
@@ -386,27 +389,196 @@ std::vector<double> lowPassTaps(int tapCount, double cutoffHz, double sampleRate
     return taps;
 }
 
-QString audioCommand(uint32_t audioRate)
+QString envAudioCommand()
 {
-    QString command = QString::fromLocal8Bit(qgetenv("RTLSDR_FM_AUDIO_CMD")).trimmed();
-    if (command.isEmpty()) {
-        command = QStringLiteral("aplay -q -t raw -f S16_LE -r %1 -c 1").arg(audioRate);
-    } else {
-        command.replace(QStringLiteral("{rate}"), QString::number(audioRate));
-        command.replace(QStringLiteral("%r"), QString::number(audioRate));
-        command.replace(QStringLiteral("{channels}"), QStringLiteral("1"));
-        command.replace(QStringLiteral("%c"), QStringLiteral("1"));
+    return QString::fromLocal8Bit(qgetenv("RTLSDR_FM_AUDIO_CMD")).trimmed();
+}
+
+bool audioCommandValueDisabled(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    return normalized == QStringLiteral("off")
+        || normalized == QStringLiteral("none")
+        || normalized == QStringLiteral("disabled")
+        || normalized == QStringLiteral("0");
+}
+
+QString normalizeAudioDeviceId(const QString &deviceId)
+{
+    const QString trimmed = deviceId.trimmed();
+    const QString lower = trimmed.toLower();
+    if (trimmed.isEmpty()
+            || lower == QStringLiteral("default")
+            || lower == QStringLiteral("auto")
+            || lower == QStringLiteral("system")) {
+        return QStringLiteral("default");
     }
+    if (audioCommandValueDisabled(trimmed)) {
+        return QStringLiteral("off");
+    }
+    if (lower == QStringLiteral("cmd")
+            || lower == QStringLiteral("custom")
+            || lower == QStringLiteral("command")) {
+        return QStringLiteral("cmd");
+    }
+    return trimmed;
+}
+
+QString substituteAudioCommand(QString command, uint32_t audioRate)
+{
+    command.replace(QStringLiteral("{rate}"), QString::number(audioRate));
+    command.replace(QStringLiteral("%r"), QString::number(audioRate));
+    command.replace(QStringLiteral("{channels}"), QStringLiteral("1"));
+    command.replace(QStringLiteral("%c"), QStringLiteral("1"));
     return command;
 }
 
-bool audioOutputDisabled()
+QString shellQuote(QString value)
 {
-    const QString value = QString::fromLocal8Bit(qgetenv("RTLSDR_FM_AUDIO_CMD")).trimmed().toLower();
-    return value == QStringLiteral("off")
-        || value == QStringLiteral("none")
-        || value == QStringLiteral("disabled")
-        || value == QStringLiteral("0");
+    value.replace(QStringLiteral("'"), QStringLiteral("'\"'\"'"));
+    return QStringLiteral("'%1'").arg(value);
+}
+
+QString initialAudioOutputDeviceId()
+{
+    const QString configuredDevice = QString::fromLocal8Bit(qgetenv("RTLSDR_FM_AUDIO_DEVICE")).trimmed();
+    if (!configuredDevice.isEmpty()) {
+        return normalizeAudioDeviceId(configuredDevice);
+    }
+
+    const QString command = envAudioCommand();
+    if (command.isEmpty()) {
+        return QStringLiteral("default");
+    }
+    if (audioCommandValueDisabled(command)) {
+        return QStringLiteral("off");
+    }
+    return QStringLiteral("cmd");
+}
+
+QString audioCommand(uint32_t audioRate, const QString &deviceId)
+{
+    const QString normalizedDevice = normalizeAudioDeviceId(deviceId);
+    if (normalizedDevice == QStringLiteral("off")) {
+        return QString();
+    }
+    if (normalizedDevice == QStringLiteral("cmd")) {
+        const QString command = envAudioCommand();
+        if (command.isEmpty() || audioCommandValueDisabled(command)) {
+            return QString();
+        }
+        return substituteAudioCommand(command, audioRate);
+    }
+    if (normalizedDevice == QStringLiteral("default")) {
+        return QStringLiteral("aplay -q -t raw -f S16_LE -r %1 -c 1").arg(audioRate);
+    }
+    return QStringLiteral("aplay -q -D %1 -t raw -f S16_LE -r %2 -c 1")
+        .arg(shellQuote(normalizedDevice), QString::number(audioRate));
+}
+
+QVariantMap audioOutputDeviceEntry(const QString &id, const QString &label, const QString &description)
+{
+    QVariantMap entry;
+    entry.insert(QStringLiteral("id"), id);
+    entry.insert(QStringLiteral("label"), label);
+    entry.insert(QStringLiteral("description"), description);
+    return entry;
+}
+
+bool audioDeviceListContains(const QVariantList &devices, const QString &id)
+{
+    for (const QVariant &device : devices) {
+        if (device.toMap().value(QStringLiteral("id")).toString() == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void appendAudioOutputDevice(QVariantList *devices,
+                             QSet<QString> *seenIds,
+                             const QString &id,
+                             const QString &label,
+                             const QString &description)
+{
+    if (seenIds->contains(id)) {
+        return;
+    }
+    seenIds->insert(id);
+    devices->append(audioOutputDeviceEntry(id, label, description));
+}
+
+QString fallbackAudioOutputDeviceLabel(const QString &deviceId)
+{
+    const QString normalizedDevice = normalizeAudioDeviceId(deviceId);
+    if (normalizedDevice == QStringLiteral("default")) {
+        return QStringLiteral("系统默认输出");
+    }
+    if (normalizedDevice == QStringLiteral("off")) {
+        return QStringLiteral("静音");
+    }
+    if (normalizedDevice == QStringLiteral("cmd")) {
+        return QStringLiteral("自定义命令");
+    }
+    return normalizedDevice;
+}
+
+QVariantList detectedAudioOutputDevices()
+{
+    QVariantList devices;
+    QSet<QString> seenIds;
+    appendAudioOutputDevice(&devices,
+                            &seenIds,
+                            QStringLiteral("default"),
+                            QStringLiteral("系统默认输出"),
+                            QStringLiteral("不指定 ALSA 设备，由系统默认路由播放"));
+    appendAudioOutputDevice(&devices,
+                            &seenIds,
+                            QStringLiteral("off"),
+                            QStringLiteral("静音"),
+                            QStringLiteral("只运行接收和频谱，不播放音频"));
+
+    const QString customCommand = envAudioCommand();
+    if (!customCommand.isEmpty() && !audioCommandValueDisabled(customCommand)) {
+        appendAudioOutputDevice(&devices,
+                                &seenIds,
+                                QStringLiteral("cmd"),
+                                QStringLiteral("自定义命令"),
+                                QStringLiteral("使用 RTLSDR_FM_AUDIO_CMD"));
+    }
+
+#if defined(Q_OS_WIN)
+    return devices;
+#else
+    QProcess aplay;
+    aplay.start(QStringLiteral("aplay"), QStringList() << QStringLiteral("-l"));
+    if (!aplay.waitForFinished(1200)) {
+        return devices;
+    }
+
+    const QString output = QString::fromLocal8Bit(aplay.readAllStandardOutput())
+        + QString::fromLocal8Bit(aplay.readAllStandardError());
+    static const QRegularExpression cardPattern(
+        QStringLiteral("^card\\s+(\\d+):\\s*([^\\[]*)\\[([^\\]]+)\\],\\s*device\\s+(\\d+):\\s*([^\\[]*)\\[([^\\]]+)\\]"),
+        QRegularExpression::MultilineOption);
+    QRegularExpressionMatchIterator matches = cardPattern.globalMatch(output);
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
+        const QString card = match.captured(1).trimmed();
+        const QString device = match.captured(4).trimmed();
+        const QString cardName = match.captured(3).trimmed();
+        const QString deviceName = match.captured(6).trimmed();
+        const QString id = QStringLiteral("plughw:%1,%2").arg(card, device);
+        const QString labelName = deviceName.isEmpty() ? cardName : deviceName;
+        const QString label = QStringLiteral("%1 · %2").arg(id, labelName);
+        QString description = QStringLiteral("card %1, device %2").arg(card, device);
+        if (!cardName.isEmpty() && cardName != labelName) {
+            description = QStringLiteral("%1 · %2").arg(cardName, description);
+        }
+        appendAudioOutputDevice(&devices, &seenIds, id, label, description);
+    }
+    return devices;
+#endif
 }
 
 QString compactProcessText(const QByteArray &data)
@@ -445,9 +617,15 @@ QString audioErrorMessage(const QString &summary, QProcess *audio)
     return QStringLiteral("%1：%2").arg(summary, details);
 }
 
-bool startAudioProcess(QProcess *audio, uint32_t audioRate, QString *error)
+bool startAudioProcess(QProcess *audio, uint32_t audioRate, const QString &deviceId, QString *error)
 {
-    const QString command = audioCommand(audioRate);
+    const QString command = audioCommand(audioRate, deviceId);
+    if (command.isEmpty()) {
+        if (error != nullptr) {
+            *error = QStringLiteral("音频输出已禁用");
+        }
+        return false;
+    }
 #if defined(Q_OS_WIN)
     audio->start(QStringLiteral("cmd.exe"), QStringList() << QStringLiteral("/C") << command);
 #else
@@ -623,6 +801,7 @@ public:
                 const FmModeProfile &modeProfile,
                 int fftSize,
                 double volume,
+                const QString &audioOutputDeviceId,
                 QObject *parent = nullptr)
         : QThread(parent)
         , m_deviceIndex(deviceIndex)
@@ -632,6 +811,7 @@ public:
         , m_directSampling(directSampling)
         , m_modeProfile(modeProfile)
         , m_fftSize(fftSize)
+        , m_audioOutputDeviceId(normalizeAudioDeviceId(audioOutputDeviceId))
         , m_requestedFrequency(centerFrequency)
         , m_volumePermille(static_cast<int>(std::llround(volume * 1000.0)))
     {
@@ -731,8 +911,8 @@ protected:
 
         QProcess audio;
         QString audioError;
-        bool audioEnabled = !audioOutputDisabled();
-        if (audioEnabled && !startAudioProcess(&audio, m_modeProfile.audioRate, &audioError)) {
+        bool audioEnabled = m_audioOutputDeviceId != QStringLiteral("off");
+        if (audioEnabled && !startAudioProcess(&audio, m_modeProfile.audioRate, m_audioOutputDeviceId, &audioError)) {
             qWarning().noquote() << audioError;
             emit statusReady(QStringLiteral("%1；FM 继续运行但静音").arg(audioError));
             audioEnabled = false;
@@ -894,6 +1074,7 @@ private:
     int m_directSampling = 0;
     FmModeProfile m_modeProfile;
     int m_fftSize = kDefaultFftSize;
+    QString m_audioOutputDeviceId;
     std::atomic_bool m_stopRequested {false};
     std::atomic<uint32_t> m_requestedFrequency;
     std::atomic<int> m_volumePermille;
@@ -911,11 +1092,14 @@ FmReceiver::FmReceiver(QObject *parent)
     , m_fftSize(nearestPowerOfTwo(envInt("RTLSDR_FM_FFT_SIZE", kDefaultFftSize)))
     , m_mode(normalizedFmMode(QString::fromLocal8Bit(qgetenv("RTLSDR_FM_MODE"))))
     , m_volume(std::max(0.0, std::min(1.5, envDouble("RTLSDR_FM_VOLUME", 0.80))))
+    , m_audioOutputDevices(detectedAudioOutputDevices())
+    , m_audioOutputDeviceId(initialAudioOutputDeviceId())
 {
     if (m_minFrequencyHz > m_maxFrequencyHz) {
         std::swap(m_minFrequencyHz, m_maxFrequencyHz);
     }
     m_centerFrequencyHz = clampedFrequency(m_centerFrequencyHz);
+    ensureSelectedAudioDeviceListed();
 }
 
 FmReceiver::~FmReceiver()
@@ -997,6 +1181,27 @@ double FmReceiver::volume() const
     return m_volume;
 }
 
+QVariantList FmReceiver::audioOutputDevices() const
+{
+    return m_audioOutputDevices;
+}
+
+QString FmReceiver::audioOutputDeviceId() const
+{
+    return m_audioOutputDeviceId;
+}
+
+QString FmReceiver::audioOutputDeviceLabel() const
+{
+    for (const QVariant &device : m_audioOutputDevices) {
+        const QVariantMap entry = device.toMap();
+        if (entry.value(QStringLiteral("id")).toString() == m_audioOutputDeviceId) {
+            return entry.value(QStringLiteral("label")).toString();
+        }
+    }
+    return fallbackAudioOutputDeviceLabel(m_audioOutputDeviceId);
+}
+
 void FmReceiver::start()
 {
     if (m_worker != nullptr) {
@@ -1021,7 +1226,8 @@ void FmReceiver::start()
                                directSampling,
                                profile,
                                m_fftSize,
-                               m_volume);
+                               m_volume,
+                               m_audioOutputDeviceId);
     connect(m_worker, &RtlFmWorker::statusReady, this, &FmReceiver::setStatus);
     connect(m_worker, &RtlFmWorker::deviceCountReady, this, &FmReceiver::setDeviceCount);
     connect(m_worker, &RtlFmWorker::tunerInfoReady, this, &FmReceiver::setTunerInfo);
@@ -1096,6 +1302,40 @@ void FmReceiver::setVolume(double volume)
     if (m_worker != nullptr) {
         m_worker->requestVolume(m_volume);
     }
+}
+
+void FmReceiver::setAudioOutputDeviceId(const QString &deviceId)
+{
+    const QString normalized = normalizeAudioDeviceId(deviceId);
+    if (m_audioOutputDeviceId == normalized) {
+        return;
+    }
+
+    m_audioOutputDeviceId = normalized;
+    const bool deviceListChanged = ensureSelectedAudioDeviceListed();
+    emit audioOutputDeviceChanged();
+    if (deviceListChanged) {
+        emit audioOutputDevicesChanged();
+    }
+
+    if (m_worker != nullptr) {
+        m_restartAfterStop = true;
+        stop();
+    }
+}
+
+void FmReceiver::refreshAudioOutputDevices()
+{
+    const QVariantList devices = detectedAudioOutputDevices();
+    if (m_audioOutputDevices == devices) {
+        return;
+    }
+
+    m_audioOutputDevices = devices;
+    const bool deviceListChanged = ensureSelectedAudioDeviceListed();
+    Q_UNUSED(deviceListChanged)
+    emit audioOutputDevicesChanged();
+    emit audioOutputDeviceChanged();
 }
 
 void FmReceiver::setCenterFrequencyHz(double frequencyHz)
@@ -1212,6 +1452,20 @@ double FmReceiver::sampleRateForMode(const QString &mode) const
 QString FmReceiver::normalizedMode(const QString &mode) const
 {
     return normalizedFmMode(mode);
+}
+
+bool FmReceiver::ensureSelectedAudioDeviceListed()
+{
+    if (audioDeviceListContains(m_audioOutputDevices, m_audioOutputDeviceId)) {
+        return false;
+    }
+
+    QVariantMap entry;
+    entry.insert(QStringLiteral("id"), m_audioOutputDeviceId);
+    entry.insert(QStringLiteral("label"), fallbackAudioOutputDeviceLabel(m_audioOutputDeviceId));
+    entry.insert(QStringLiteral("description"), QStringLiteral("当前选择，未在 aplay -l 中检测到"));
+    m_audioOutputDevices.append(entry);
+    return true;
 }
 
 #include "FmReceiver.moc"

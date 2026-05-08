@@ -255,8 +255,12 @@ export RTLSDR_FM_AUDIO_CMD=off
 也可以指定声卡设备，例如：
 
 ```bash
-export RTLSDR_FM_AUDIO_CMD="aplay -q -D hw:0,0 -t raw -f S16_LE -r {rate} -c {channels}"
+export RTLSDR_FM_AUDIO_DEVICE=plughw:1,0
+# 或使用完整自定义命令：
+export RTLSDR_FM_AUDIO_CMD="aplay -q -D plughw:1,0 -t raw -f S16_LE -r {rate} -c {channels}"
 ```
+
+FM 页面也会读取 `aplay -l` 并在“音频输出”下拉框中列出 `plughw:x,y` 设备；切换输出设备时，正在运行的 FM 接收机会自动重启音频链路。
 
 ---
 

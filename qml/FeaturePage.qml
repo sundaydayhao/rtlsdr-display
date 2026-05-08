@@ -501,6 +501,119 @@ Item {
                     }
 
                     Rectangle {
+                        id: fmAudioOutputSelector
+                        property bool expanded: false
+
+                        width: parent.width
+                        height: expanded ? 42 + Math.min(5, fmReceiver.audioOutputDevices.length) * 34 : 38
+                        radius: 8
+                        color: "#0b0f13"
+                        border.color: expanded ? root.accent : "#27313a"
+                        clip: true
+
+                        Rectangle {
+                            id: fmAudioOutputHeader
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            height: 38
+                            color: fmAudioOutputMouse.pressed ? "#202830"
+                                  : fmAudioOutputMouse.containsMouse ? "#161d23" : "transparent"
+
+                            Column {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 12
+                                anchors.right: fmAudioOutputArrow.left
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 1
+
+                                Text {
+                                    width: parent.width
+                                    text: "音频输出"
+                                    color: "#7f909d"
+                                    font.pixelSize: 10
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: fmReceiver.audioOutputDeviceLabel
+                                    color: "#e6edf3"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Text {
+                                id: fmAudioOutputArrow
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: fmAudioOutputSelector.expanded ? "▲" : "▼"
+                                color: "#8d9daa"
+                                font.pixelSize: 10
+                            }
+
+                            MouseArea {
+                                id: fmAudioOutputMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    fmReceiver.refreshAudioOutputDevices()
+                                    fmAudioOutputSelector.expanded = !fmAudioOutputSelector.expanded
+                                }
+                            }
+                        }
+
+                        ListView {
+                            id: fmAudioOutputList
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: fmAudioOutputHeader.bottom
+                            height: Math.min(5, fmReceiver.audioOutputDevices.length) * 34
+                            clip: true
+                            interactive: fmReceiver.audioOutputDevices.length > 5
+                            model: fmReceiver.audioOutputDevices
+                            visible: fmAudioOutputSelector.expanded
+
+                            delegate: Rectangle {
+                                width: fmAudioOutputList.width
+                                height: 34
+                                color: fmAudioOutputOptionMouse.pressed ? "#29323a"
+                                      : modelData.id === fmReceiver.audioOutputDeviceId ? "#18323a"
+                                      : fmAudioOutputOptionMouse.containsMouse ? "#182129" : "#0b0f13"
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 12
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 12
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.label
+                                    color: modelData.id === fmReceiver.audioOutputDeviceId ? root.accent : "#d8e2ea"
+                                    font.pixelSize: 12
+                                    font.bold: modelData.id === fmReceiver.audioOutputDeviceId
+                                    elide: Text.ElideRight
+                                }
+
+                                MouseArea {
+                                    id: fmAudioOutputOptionMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        fmReceiver.setAudioOutputDeviceId(modelData.id)
+                                        fmAudioOutputSelector.expanded = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
                         id: fmVolumeTrack
                         width: parent.width
                         height: 32
