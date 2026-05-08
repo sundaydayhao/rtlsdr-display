@@ -44,7 +44,7 @@ Rectangle {
     Connections {
         target: root.receiver
 
-        function onSpectrumReady(levels, leftFrequencyHz, rightFrequencyHz) {
+        onSpectrumReady: {
             root.pushSpectrum(levels, leftFrequencyHz, rightFrequencyHz)
         }
 
