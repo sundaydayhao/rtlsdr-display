@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QThread>
+#include <QTextStream>
 
 #include <algorithm>
 #include <atomic>
@@ -225,6 +226,73 @@ void parseIqFilename(const QString &name, double *centerHz, double *sampleRate)
         if (ok2 && r > 0.0) *sampleRate = r;
     }
 }
+
+// 生成 SigMF 元数据文件（.sigmf-meta）
+// SigMF 规范：https://github.com/sigmf/SigMF/blob/sigmf-v1.x/sigmf-spec.md
+void writeSigMFMeta(const QString &iqFilePath,
+                    double centerHz,
+                    double sampleRate,
+                    const QString &isoDatetime)
+{
+    const QFileInfo fi(iqFilePath);
+    const QString metaPath = fi.absolutePath() + QLatin1Char('/') +
+                             fi.completeBaseName() + QStringLiteral(".sigmf-meta");
+    QFile metaFile(metaPath);
+    if (!metaFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
+    QTextStream out(&metaFile);
+    out.setCodec("UTF-8");
+    out << "{\n"
+        << "  \"global\": {\n"
+        << "    \"core:datatype\": \"cu8\",\n"
+        << "    \"core:sample_rate\": " << static_cast<qint64>(sampleRate) << ",\n"
+        << "    \"core:version\": \"1.0.0\",\n"
+        << "    \"core:description\": \"RTL-SDR I/Q recording\"\n"
+        << "  },\n"
+        << "  \"captures\": [\n"
+        << "    {\n"
+        << "      \"core:sample_start\": 0,\n"
+        << "      \"core:frequency\": " << static_cast<qint64>(centerHz) << ",\n"
+        << "      \"core:datetime\": \"" << isoDatetime << "\"\n"
+        << "    }\n"
+        << "  ],\n"
+        << "  \"annotations\": []\n"
+        << "}\n";
+    metaFile.close();
+}
+
+// 从 SigMF 元数据文件读取中心频率和采样率
+void parseSigMFMeta(const QString &iqFilePath, double *centerHz, double *sampleRate)
+{
+    const QFileInfo fi(iqFilePath);
+    const QString metaPath = fi.absolutePath() + QLatin1Char('/') +
+                             fi.completeBaseName() + QStringLiteral(".sigmf-meta");
+    QFile metaFile(metaPath);
+    if (!metaFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+    const QString text = QString::fromUtf8(metaFile.readAll());
+    metaFile.close();
+
+    static const QRegularExpression reSampleRate(
+        QStringLiteral("\"core:sample_rate\"\\s*:\\s*(\\d+)"));
+    static const QRegularExpression reFrequency(
+        QStringLiteral("\"core:frequency\"\\s*:\\s*(\\d+)"));
+
+    auto m = reSampleRate.match(text);
+    if (m.hasMatch()) {
+        bool ok = false;
+        const double r = m.captured(1).toDouble(&ok);
+        if (ok && r > 0.0) *sampleRate = r;
+    }
+    m = reFrequency.match(text);
+    if (m.hasMatch()) {
+        bool ok = false;
+        const double f = m.captured(1).toDouble(&ok);
+        if (ok && f > 0.0) *centerHz = f;
+    }
+}
 } // namespace
 
 class RtlRecordWorker : public QThread
@@ -364,6 +432,9 @@ protected:
 
         emit statusReady(QStringLiteral("I/Q 录制中：%1 / %2 SPS").arg(mhzLabel(currentFrequency)).arg(m_sampleRate));
 
+        const QString recordingStartIso =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
         std::vector<unsigned char> raw(kReadBufferBytes);
         QElapsedTimer elapsedTimer;
         QElapsedTimer reportTimer;
@@ -413,6 +484,12 @@ protected:
         output.flush();
         output.close();
         closeDevice();
+
+        // 生成 SigMF 元数据文件
+        writeSigMFMeta(m_filePath,
+                       static_cast<double>(currentFrequency),
+                       static_cast<double>(m_sampleRate),
+                       recordingStartIso);
 
         const double elapsedSeconds = static_cast<double>(elapsedTimer.elapsed()) / 1000.0;
         emit statsReady(bytesWritten, elapsedSeconds);
@@ -873,6 +950,21 @@ public:
 
     void requestStop() { m_stopRequested.store(true); }
 
+    // 跳转到指定进度（0.0 ~ 1.0），线程安全
+    void requestSeek(double progress)
+    {
+        // 存储为万分之一精度的整数，避免 atomic<double> 的平台兼容问题
+        const int val = static_cast<int>(std::max(0.0, std::min(1.0, progress)) * 10000.0);
+        m_seekPermille.store(val);
+    }
+
+    // 设置回放速度（0.25 ~ 8.0），线程安全
+    void setSpeed(double speed)
+    {
+        const int val = static_cast<int>(std::max(0.25, std::min(8.0, speed)) * 100.0);
+        m_speedPercent.store(val);
+    }
+
 signals:
     void statusReady(const QString &status);
     void fileInfoReady(double centerHz, double sampleRate, double durationSeconds);
@@ -883,6 +975,7 @@ protected:
     void run() override
     {
         m_stopRequested.store(false);
+        m_seekPermille.store(-1);
 
         QFile file(m_filePath);
         if (!file.open(QIODevice::ReadOnly)) {
@@ -896,9 +989,10 @@ protected:
             return;
         }
 
-        // 尝试从文件名解析频率和采样率
+        // 优先从 SigMF 元数据文件读取频率和采样率，其次从文件名解析
         double centerHz   = m_centerHz;
         double sampleRate = m_sampleRate;
+        parseSigMFMeta(m_filePath, &centerHz, &sampleRate);
         parseIqFilename(QFileInfo(m_filePath).fileName(), &centerHz, &sampleRate);
 
         const double durationSeconds =
@@ -922,6 +1016,20 @@ protected:
         std::vector<unsigned char> raw(kPlaybackReadBytes);
 
         while (!m_stopRequested.load()) {
+            // 处理跳转请求
+            const int seekVal = m_seekPermille.exchange(-1);
+            if (seekVal >= 0) {
+                const double progress = static_cast<double>(seekVal) / 10000.0;
+                qint64 seekPos = static_cast<qint64>(progress * static_cast<double>(fileSize));
+                // 对齐到样本边界（每个样本 2 字节：I + Q）
+                seekPos = (seekPos / 2) * 2;
+                seekPos = std::max(qint64(0), std::min(fileSize - 2, seekPos));
+                file.seek(seekPos);
+                // 重置频谱显示范围
+                displayFloor   = std::numeric_limits<double>::quiet_NaN();
+                displayCeiling = std::numeric_limits<double>::quiet_NaN();
+            }
+
             const int toRead = static_cast<int>(raw.size());
             const qint64 n   = file.read(reinterpret_cast<char *>(raw.data()), toRead);
 
@@ -967,7 +1075,11 @@ protected:
             const double halfSpan = sampleRate / 2.0;
             emit spectrumReady(levels, centerHz - halfSpan, centerHz + halfSpan);
 
-            QThread::msleep(kPlaybackFrameIntervalMs);
+            // 根据速度调整帧间隔（速度越快，间隔越短）
+            const double speed = static_cast<double>(m_speedPercent.load()) / 100.0;
+            const int sleepMs = static_cast<int>(
+                static_cast<double>(kPlaybackFrameIntervalMs) / std::max(0.01, speed));
+            QThread::msleep(static_cast<unsigned long>(std::max(1, sleepMs)));
         }
 
         file.close();
@@ -980,6 +1092,8 @@ private:
     double             m_sampleRate;
     int                m_fftSize;
     std::atomic_bool   m_stopRequested{false};
+    std::atomic<int>   m_seekPermille{-1};   // -1 = 无跳转请求；0~10000 = 进度万分比
+    std::atomic<int>   m_speedPercent{100};  // 100 = 1x 速度
 };
 
 // ---------------------------------------------------------------------------
@@ -993,6 +1107,7 @@ double RecordReceiver::playbackDurationSeconds() const { return m_playbackDurati
 double RecordReceiver::playbackCenterFrequencyHz() const { return m_playbackCenterFrequencyHz; }
 double RecordReceiver::playbackSampleRateHz() const { return m_playbackSampleRateHz; }
 int RecordReceiver::fftSize() const { return kFftSize; }
+double RecordReceiver::playbackSpeed() const { return m_playbackSpeed; }
 
 void RecordReceiver::setPlaybackFilePath(const QString &path)
 {
@@ -1040,6 +1155,9 @@ void RecordReceiver::startPlayback()
         setPlaybackRunning(false);
     });
 
+    // 应用当前速度设置
+    m_playbackWorker->setSpeed(m_playbackSpeed);
+
     setPlaybackRunning(true);
     m_playbackWorker->start();
 }
@@ -1049,6 +1167,24 @@ void RecordReceiver::stopPlayback()
     if (m_playbackWorker == nullptr) return;
     setStatus(QStringLiteral("正在停止回放"));
     m_playbackWorker->requestStop();
+}
+
+void RecordReceiver::seekPlayback(double progress)
+{
+    if (m_playbackWorker != nullptr) {
+        m_playbackWorker->requestSeek(progress);
+    }
+}
+
+void RecordReceiver::setPlaybackSpeed(double speed)
+{
+    speed = std::max(0.25, std::min(8.0, speed));
+    if (qFuzzyCompare(m_playbackSpeed, speed)) return;
+    m_playbackSpeed = speed;
+    if (m_playbackWorker != nullptr) {
+        m_playbackWorker->setSpeed(speed);
+    }
+    emit playbackSpeedChanged();
 }
 
 void RecordReceiver::setPlaybackRunning(bool running)

@@ -34,6 +34,7 @@ class RecordReceiver : public QObject
     Q_PROPERTY(double playbackCenterFrequencyHz READ playbackCenterFrequencyHz NOTIFY playbackFileInfoChanged)
     Q_PROPERTY(double playbackSampleRateHz READ playbackSampleRateHz NOTIFY playbackFileInfoChanged)
     Q_PROPERTY(int fftSize READ fftSize CONSTANT)
+    Q_PROPERTY(double playbackSpeed READ playbackSpeed WRITE setPlaybackSpeed NOTIFY playbackSpeedChanged)
 
 public:
     explicit RecordReceiver(QObject *parent = nullptr);
@@ -74,11 +75,13 @@ public:
     Q_INVOKABLE void startPlayback();
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE void setPlaybackFilePath(const QString &path);
+    Q_INVOKABLE void seekPlayback(double progress);
 
 public slots:
     void setCenterFrequencyHz(double frequencyHz);
     void setSampleRateHz(double sampleRateHz);
     void setOutputFilePath(const QString &filePath);
+    void setPlaybackSpeed(double speed);
 
 signals:
     // 录制信号
@@ -96,6 +99,7 @@ signals:
     void playbackFilePathChanged();
     void playbackProgressChanged();
     void playbackFileInfoChanged();
+    void playbackSpeedChanged();
     void spectrumReady(const QVariantList &levels, double leftFrequencyHz, double rightFrequencyHz);
 
 private:
@@ -115,6 +119,7 @@ private:
     void setPlaybackRunning(bool running);
     void setPlaybackProgress(double progress, double elapsedSeconds);
     void setPlaybackFileInfo(double centerHz, double sampleRate, double durationSeconds);
+    double playbackSpeed() const;
 
     // 录制
     RtlRecordWorker   *m_worker = nullptr;
@@ -141,5 +146,6 @@ private:
     double             m_playbackDurationSeconds = 0.0;
     double             m_playbackCenterFrequencyHz = 100000000.0;
     double             m_playbackSampleRateHz = 2400000.0;
+    double             m_playbackSpeed = 1.0;
     static constexpr int kFftSize = 512;
 };

@@ -1003,14 +1003,15 @@ Item {
                         }
                     }
 
-                    // 回放进度条
+                    // 回放进度条（可点击跳转）
                     Rectangle {
+                        id: playbackProgressBar
                         width: parent.width
                         height: 32
                         visible: root.recordPlaybackMode
                         radius: 8
                         color: "#0b0f13"
-                        border.color: "#27313a"
+                        border.color: progressBarMouse.containsMouse ? root.accent : "#27313a"
 
                         Rectangle {
                             anchors.left: parent.left
@@ -1029,11 +1030,75 @@ Item {
                                   ? (Math.round(recordReceiver.playbackProgress * 100) + "% · "
                                      + root.durationText(recordReceiver.playbackElapsedSeconds)
                                      + " / " + root.durationText(recordReceiver.playbackDurationSeconds))
-                                  : "回放进度"
+                                  : "回放进度（点击跳转）"
                             color: "#e6edf3"
                             font.pixelSize: 12
                             font.bold: true
                             elide: Text.ElideRight
+                        }
+
+                        MouseArea {
+                            id: progressBarMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+
+                            function seekTo(x) {
+                                var progress = Math.max(0.0, Math.min(1.0, x / width))
+                                recordReceiver.seekPlayback(progress)
+                            }
+
+                            onClicked: seekTo(mouse.x)
+                            onPositionChanged: {
+                                if (pressed) seekTo(mouse.x)
+                            }
+                        }
+                    }
+
+                    // 回放速度控制
+                    Row {
+                        id: playbackSpeedRow
+                        width: parent.width
+                        height: 28
+                        visible: root.recordPlaybackMode
+                        spacing: 5
+
+                        Repeater {
+                            model: [
+                                { "label": "0.5×", "speed": 0.5 },
+                                { "label": "1×",   "speed": 1.0 },
+                                { "label": "2×",   "speed": 2.0 },
+                                { "label": "4×",   "speed": 4.0 }
+                            ]
+
+                            Rectangle {
+                                width: (playbackSpeedRow.width - playbackSpeedRow.spacing * 3) / 4
+                                height: playbackSpeedRow.height
+                                radius: 6
+                                color: Math.abs(recordReceiver.playbackSpeed - modelData.speed) < 0.01
+                                       ? root.accent
+                                       : speedBtnMouse.pressed ? "#29323a"
+                                       : speedBtnMouse.containsMouse ? "#222a31" : "#101419"
+                                border.color: Math.abs(recordReceiver.playbackSpeed - modelData.speed) < 0.01
+                                              ? root.accent : "#313c46"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: Math.abs(recordReceiver.playbackSpeed - modelData.speed) < 0.01
+                                           ? "#071014" : "#d8e2ea"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    id: speedBtnMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: recordReceiver.setPlaybackSpeed(modelData.speed)
+                                }
+                            }
                         }
                     }
 
