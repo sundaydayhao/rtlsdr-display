@@ -7,6 +7,7 @@
 #include "scanner/ScannerReceiver.h"
 
 #include <QByteArray>
+#include <QFile>
 #include <QGuiApplication>
 #include <QDir>
 #include <QNetworkAccessManager>
@@ -21,6 +22,51 @@
 #include <QUrl>
 
 namespace {
+QString readTextFile(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    QByteArray data = file.readAll();
+    if (data.isEmpty()) {
+        return {};
+    }
+
+    data.replace('\0', ' ');
+    return QString::fromUtf8(data).trimmed();
+}
+
+bool useEmbeddedWindowMode()
+{
+    const QString target = QStringLiteral(RTLSDR_PANEL_TARGET);
+    if (target == QStringLiteral("rk3566") || target == QStringLiteral("raspberrypi")) {
+        return true;
+    }
+    if (target == QStringLiteral("desktop")) {
+        return false;
+    }
+
+    const QString deviceDescription = (
+        readTextFile(QStringLiteral("/sys/firmware/devicetree/base/model"))
+        + QStringLiteral(" ")
+        + readTextFile(QStringLiteral("/sys/firmware/devicetree/base/compatible"))
+        + QStringLiteral(" ")
+        + readTextFile(QStringLiteral("/proc/device-tree/model"))
+        + QStringLiteral(" ")
+        + readTextFile(QStringLiteral("/proc/device-tree/compatible"))).toLower();
+
+    if (deviceDescription.contains(QStringLiteral("raspberry pi"))
+            || deviceDescription.contains(QStringLiteral("raspberrypi"))
+            || deviceDescription.contains(QStringLiteral("rk3566"))) {
+        return true;
+    }
+
+    const QByteArray platform = qgetenv("QT_QPA_PLATFORM").toLower();
+    return platform == QByteArrayLiteral("eglfs") || platform == QByteArrayLiteral("linuxfb");
+}
+
 class PanelNetworkAccessManager final : public QNetworkAccessManager
 {
 public:
@@ -95,6 +141,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("sensorReceiver"), &sensorReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("waterfallReceiver"), &waterfallReceiver);
     engine.rootContext()->setContextProperty(QStringLiteral("scannerReceiver"), &scannerReceiver);
+    engine.rootContext()->setContextProperty(QStringLiteral("panelEmbeddedUi"), useEmbeddedWindowMode());
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
 
     if (engine.rootObjects().isEmpty()) {

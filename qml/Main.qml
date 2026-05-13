@@ -5,8 +5,11 @@ Window {
     id: root
     width: 1280
     height: 720
-    visibility: Window.FullScreen
+    title: "RTL-SDR Panel"
+    visibility: root.embeddedUi ? Window.FullScreen : Window.Windowed
+    flags: root.embeddedUi ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
     color: "#101316"
+    property bool embeddedUi: panelEmbeddedUi
     property bool compactUi: width <= 900 || height <= 520
     property int pageMargin: compactUi ? 16 : 40
     property int footerHeight: compactUi ? 42 : 56
