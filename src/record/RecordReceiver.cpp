@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QStringConverter>
 #include <QStandardPaths>
 #include <QThread>
 #include <QTextStream>
@@ -242,7 +243,11 @@ void writeSigMFMeta(const QString &iqFilePath,
         return;
     }
     QTextStream out(&metaFile);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    out.setEncoding(QStringConverter::Utf8);
+#else
     out.setCodec("UTF-8");
+#endif
     out << "{\n"
         << "  \"global\": {\n"
         << "    \"core:datatype\": \"cu8\",\n"

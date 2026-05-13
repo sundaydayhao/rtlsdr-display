@@ -448,7 +448,11 @@ QString initialAudioOutputDeviceId()
 
     const QString command = envAudioCommand();
     if (command.isEmpty()) {
+#if defined(Q_OS_WIN)
+        return QStringLiteral("off");
+#else
         return QStringLiteral("default");
+#endif
     }
     if (audioCommandValueDisabled(command)) {
         return QStringLiteral("off");
@@ -470,10 +474,18 @@ QString audioCommand(uint32_t audioRate, const QString &deviceId)
         return substituteAudioCommand(command, audioRate);
     }
     if (normalizedDevice == QStringLiteral("default")) {
+#if defined(Q_OS_WIN)
+        return QString();
+#else
         return QStringLiteral("aplay -q -t raw -f S16_LE -r %1 -c 1").arg(audioRate);
+#endif
     }
+#if defined(Q_OS_WIN)
+    return QString();
+#else
     return QStringLiteral("aplay -q -D %1 -t raw -f S16_LE -r %2 -c 1")
         .arg(shellQuote(normalizedDevice), QString::number(audioRate));
+#endif
 }
 
 QVariantMap audioOutputDeviceEntry(const QString &id, const QString &label, const QString &description)
@@ -527,11 +539,13 @@ QVariantList detectedAudioOutputDevices()
 {
     QVariantList devices;
     QSet<QString> seenIds;
+#if !defined(Q_OS_WIN)
     appendAudioOutputDevice(&devices,
                             &seenIds,
                             QStringLiteral("default"),
                             QStringLiteral("系统默认输出"),
                             QStringLiteral("不指定 ALSA 设备，由系统默认路由播放"));
+#endif
     appendAudioOutputDevice(&devices,
                             &seenIds,
                             QStringLiteral("off"),

@@ -120,11 +120,11 @@
 
 | 依赖 | 版本要求 | 说明 |
 |---|---|---|
-| Qt | ≥ 6.2 | Core、Quick、Multimedia、Positioning |
+| Qt | ≥ 6.2 | Core、Gui、Network、Quick/QML |
 | librtlsdr | ≥ 0.6 | RTL-SDR 硬件驱动 |
 | libusb | ≥ 1.0 | USB 设备访问 |
 | CMake | ≥ 3.16 | 构建系统 |
-| C++ 编译器 | C++17 | GCC / Clang |
+| C++ 编译器 | C++17 | GCC / Clang / MSVC / MinGW-w64 |
 | rtl_433（可选） | — | 传感器协议解码库 |
 
 ---
@@ -133,10 +133,143 @@
 
 ### 本机构建
 
+#### Ubuntu（桌面 / 开发机）依赖安装
+
+如果是在同一台 Ubuntu 机器上完成编译和运行，安装下面这一组包最省事：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential cmake pkg-config \
+  qt6-base-dev qt6-declarative-dev \
+  qml6-module-qtquick qml6-module-qtquick-window \
+  qml6-module-qtqml-workerscript \
+  librtlsdr-dev libusb-1.0-0-dev \
+  alsa-utils
+```
+
+说明：
+
+- `qt6-base-dev`、`qt6-declarative-dev`：提供 Qt6 Core / Gui / Network / QML / Quick 的开发文件，以及运行程序所需的大部分 Qt 组件
+- `qml6-module-qtquick`、`qml6-module-qtquick-window`：提供 `import QtQuick` 和 `import QtQuick.Window` 对应的 QML 运行时模块；缺少它们时会报 `module "QtQuick" is not installed`
+- `qml6-module-qtqml-workerscript`：提供 `QtQml.WorkerScript` 运行时模块；`Canvas` 组件会间接依赖它，缺少时会报 `module "QtQml.WorkerScript" is not installed`
+- `librtlsdr-dev`、`libusb-1.0-0-dev`：提供 RTL-SDR 和 USB 访问所需的头文件与库
+- `alsa-utils`：提供 `aplay`，FM 页面默认音频输出和声卡枚举都会用到它
+
+如果目标机只负责运行已经编译好的 `rtlsdr-panel`，不在本机编译，建议至少安装下面这些运行时包：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  qt6-base-dev qt6-declarative-dev \
+  qml6-module-qtquick qml6-module-qtquick-window \
+  qml6-module-qtqml-workerscript \
+  librtlsdr2 libusb-1.0-0 \
+  alsa-utils
+```
+
+之所以这里仍然保留 `qt6-base-dev` 和 `qt6-declarative-dev`，是因为不同 Ubuntu 版本的 Qt6 运行时子包拆分和命名不完全一致。对桌面机器来说，这样写更稳妥，避免运行时再遇到缺少 QML/平台插件的问题；而 `qml6-module-qtquick`、`qml6-module-qtquick-window`、`qml6-module-qtqml-workerscript` 则是这个项目在 Ubuntu 上运行时的必需项。
+
 ```bash
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
+```
+
+#### Windows（桌面 / 开发机）本机构建
+
+Windows 版建议直接在 Windows 上本机构建。不要把 Linux 下生成的 `rtlsdr-panel` 改名成 `.exe`，也不要混用 Linux 库文件；Qt、`librtlsdr`、`libusb`、编译器架构必须一致，例如全部使用 MSVC x64，或全部使用 MinGW x64。
+
+先准备依赖：
+
+- Qt 6.x，安装 `MSVC 2022 64-bit` 或 `MinGW 64-bit` 套件
+- CMake、Ninja
+- MSVC 方案需要安装 Visual Studio 2022 Build Tools，并勾选 C++ 桌面开发
+- Windows 版 `librtlsdr` 和 `libusb`，目录建议整理成下面的结构：
+
+```text
+C:\deps\rtl-sdr\
+  include\rtl-sdr.h
+  lib\rtlsdr.lib            # MSVC 常见命名；MinGW 可能是 librtlsdr.dll.a
+  bin\rtlsdr.dll
+  bin\libusb-1.0.dll
+```
+
+MSVC x64 构建示例，需要在 “x64 Native Tools Command Prompt for VS 2022” 中执行：
+
+```bat
+cd C:\path\to\rtlsdr
+
+set QT_ROOT=C:\Qt\6.6.3\msvc2022_64
+set RTLSDR_ROOT=C:\deps\rtl-sdr
+
+cmake -S . -B build-win-msvc ^
+  -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DRTLSDR_PANEL_TARGET=desktop ^
+  -DRTLSDR_PANEL_QT_MAJOR=6 ^
+  -DCMAKE_PREFIX_PATH="%QT_ROOT%" ^
+  -DRTLSDR_ROOT="%RTLSDR_ROOT%" ^
+  -DRTLSDR_RUNTIME_DLL="%RTLSDR_ROOT%\bin\rtlsdr.dll" ^
+  -DLIBUSB_RUNTIME_DLL="%RTLSDR_ROOT%\bin\libusb-1.0.dll"
+
+cmake --build build-win-msvc
+cmake --build build-win-msvc --target deploy-windows
+```
+
+MinGW x64 构建示例：
+
+```bat
+cd C:\path\to\rtlsdr
+
+set QT_ROOT=C:\Qt\6.6.3\mingw_64
+set MINGW_ROOT=C:\Qt\Tools\mingw1120_64
+set RTLSDR_ROOT=C:\deps\rtl-sdr
+set PATH=%QT_ROOT%\bin;%MINGW_ROOT%\bin;%PATH%
+
+cmake -S . -B build-win-mingw ^
+  -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DRTLSDR_PANEL_TARGET=desktop ^
+  -DRTLSDR_PANEL_QT_MAJOR=6 ^
+  -DCMAKE_PREFIX_PATH="%QT_ROOT%" ^
+  -DRTLSDR_ROOT="%RTLSDR_ROOT%" ^
+  -DRTLSDR_RUNTIME_DLL="%RTLSDR_ROOT%\bin\rtlsdr.dll" ^
+  -DLIBUSB_RUNTIME_DLL="%RTLSDR_ROOT%\bin\libusb-1.0.dll"
+
+cmake --build build-win-mingw
+cmake --build build-win-mingw --target deploy-windows
+```
+
+`deploy-windows` 会调用 Qt 的 `windeployqt`，并把 `rtlsdr.dll`、`libusb-1.0.dll` 复制到 `.exe` 同目录。最终应分发整个构建目录，而不是只复制单个 `rtlsdr-panel.exe`：
+
+```text
+build-win-msvc\
+  rtlsdr-panel.exe
+  rtlsdr.dll
+  libusb-1.0.dll
+  Qt6Core.dll
+  Qt6Gui.dll
+  Qt6Network.dll
+  Qt6Qml.dll
+  Qt6Quick.dll
+  platforms\
+  qml\
+  ...
+```
+
+如果 CMake 能编译但找不到 `windeployqt`，可以确认 `%QT_ROOT%\bin` 已加入 `PATH`，或者手动执行：
+
+```bat
+"%QT_ROOT%\bin\windeployqt.exe" --release --qmldir qml build-win-msvc\rtlsdr-panel.exe
+copy "%RTLSDR_ROOT%\bin\rtlsdr.dll" build-win-msvc\
+copy "%RTLSDR_ROOT%\bin\libusb-1.0.dll" build-win-msvc\
+```
+
+默认 Windows 构建会保留控制台窗口，方便查看 RTL-SDR 和 QML 启动日志。如果要生成无控制台 GUI 程序，在 CMake 配置中追加：
+
+```bat
+-DRTLSDR_PANEL_WIN32_GUI=ON
 ```
 
 ### 树莓派本机构建
@@ -234,9 +367,37 @@ RECORD_OUTPUT_DIR=/tmp/rtlsdr
 
 ### 运行
 
+Ubuntu 上如果只是验证 UI、频谱或其它非音频功能，仍建议先安装上面的运行时包；其中 FM 音频链路额外依赖 `alsa-utils` 提供的 `aplay`。如果机器没有声卡，或当前只想验证采集和频谱显示，可以先关闭音频输出再启动程序。
+
+如果启动时出现下面这类错误：
+
+```text
+QQmlApplicationEngine failed to load component
+qrc:/qml/Main.qml:2:1: module "QtQuick.Window" is not installed
+qrc:/qml/Main.qml:1:1: module "QtQuick" is not installed
+```
+
+通常说明系统缺少 QML 运行时模块，直接安装：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  qml6-module-qtquick \
+  qml6-module-qtquick-window \
+  qml6-module-qtqml-workerscript
+```
+
 ```bash
 ./rtlsdr-panel
 ```
+
+Windows 上运行时，先确认已经执行过 `deploy-windows` 或手动运行过 `windeployqt`，并从包含 DLL 的构建目录启动：
+
+```bat
+build-win-msvc\rtlsdr-panel.exe
+```
+
+RTL-SDR USB 棒在 Windows 上通常还需要用 Zadig 给设备安装 `WinUSB` 驱动，否则 `librtlsdr` 可能无法打开设备。当前 Windows 版会默认禁用 FM 音频输出，只运行接收、解调和频谱显示；如果需要外部播放器，可以通过 `RTLSDR_FM_AUDIO_CMD` 提供一个能从 stdin 接收 raw PCM 的命令。
 
 树莓派上 FM 页面启动后如果立刻停止，并且终端最后只看到 `Reattached kernel driver`，这通常只是 `librtlsdr` 关闭设备时的提示，真正原因多半是音频输出进程（默认 `aplay`）启动失败或声卡不可用。可先验证 ALSA：
 

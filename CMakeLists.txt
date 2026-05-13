@@ -38,12 +38,92 @@ endif()
 find_package(QT NAMES ${RTLSDR_PANEL_QT_CANDIDATES} REQUIRED COMPONENTS Core Gui Network Quick)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Network Quick)
 message(STATUS "RTL-SDR panel Qt version: Qt ${QT_VERSION_MAJOR}")
+
+set(RTLSDR_ROOT "" CACHE PATH "Root directory of librtlsdr, useful on Windows when no CMake package or pkg-config file is available")
+set(RTLSDR_RUNTIME_DLL "" CACHE FILEPATH "Path to rtlsdr.dll for Windows deployment")
+set(LIBUSB_RUNTIME_DLL "" CACHE FILEPATH "Path to libusb-1.0.dll for Windows deployment")
+option(RTLSDR_PANEL_WIN32_GUI "Build rtlsdr-panel as a Windows GUI executable without a console window" OFF)
+
+set(_RTLSDR_HINTS)
+foreach(_RTLSDR_ROOT_CANDIDATE IN ITEMS "${RTLSDR_ROOT}" "$ENV{RTLSDR_ROOT}" "$ENV{RTLSDR_DIR}")
+    if(_RTLSDR_ROOT_CANDIDATE)
+        list(APPEND _RTLSDR_HINTS "${_RTLSDR_ROOT_CANDIDATE}")
+    endif()
+endforeach()
+
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(RTLSDR QUIET IMPORTED_TARGET librtlsdr)
 endif()
-if(NOT TARGET PkgConfig::RTLSDR)
-    find_package(rtlsdr CONFIG REQUIRED)
+
+set(RTLSDR_LINK_TARGET "")
+if(TARGET PkgConfig::RTLSDR)
+    set(RTLSDR_LINK_TARGET PkgConfig::RTLSDR)
+else()
+    find_package(rtlsdr CONFIG QUIET)
+    foreach(_RTLSDR_TARGET_CANDIDATE IN ITEMS rtlsdr::rtlsdr RTLSDR::rtlsdr RTLSDR::RTLSDR rtlsdr)
+        if(NOT RTLSDR_LINK_TARGET AND TARGET ${_RTLSDR_TARGET_CANDIDATE})
+            set(RTLSDR_LINK_TARGET ${_RTLSDR_TARGET_CANDIDATE})
+        endif()
+    endforeach()
+endif()
+
+if(NOT RTLSDR_LINK_TARGET)
+    find_path(RTLSDR_INCLUDE_DIR
+        NAMES rtl-sdr.h
+        HINTS ${_RTLSDR_HINTS}
+        PATH_SUFFIXES include include/rtl-sdr
+    )
+    find_library(RTLSDR_LIBRARY
+        NAMES rtlsdr librtlsdr
+        HINTS ${_RTLSDR_HINTS}
+        PATH_SUFFIXES lib lib64 bin
+    )
+
+    if(NOT RTLSDR_INCLUDE_DIR OR NOT RTLSDR_LIBRARY)
+        message(FATAL_ERROR
+            "Could not find librtlsdr. Install librtlsdr development files, "
+            "or set RTLSDR_ROOT/RTLSDR_DIR to a directory containing include/rtl-sdr.h and lib/rtlsdr.")
+    endif()
+
+    add_library(rtlsdr_manual UNKNOWN IMPORTED)
+    set_target_properties(rtlsdr_manual PROPERTIES
+        IMPORTED_LOCATION "${RTLSDR_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${RTLSDR_INCLUDE_DIR}"
+    )
+    set(RTLSDR_LINK_TARGET rtlsdr_manual)
+endif()
+message(STATUS "RTL-SDR link target: ${RTLSDR_LINK_TARGET}")
+
+set(RTLSDR_PANEL_RUNTIME_DLLS)
+if(WIN32)
+    if(NOT RTLSDR_RUNTIME_DLL)
+        find_file(_RTLSDR_RUNTIME_DLL
+            NAMES rtlsdr.dll librtlsdr.dll
+            HINTS ${_RTLSDR_HINTS}
+            PATH_SUFFIXES bin lib
+        )
+        if(_RTLSDR_RUNTIME_DLL)
+            set(RTLSDR_RUNTIME_DLL "${_RTLSDR_RUNTIME_DLL}" CACHE FILEPATH "Path to rtlsdr.dll for Windows deployment" FORCE)
+        endif()
+    endif()
+
+    if(NOT LIBUSB_RUNTIME_DLL)
+        find_file(_LIBUSB_RUNTIME_DLL
+            NAMES libusb-1.0.dll
+            HINTS ${_RTLSDR_HINTS}
+            PATH_SUFFIXES bin lib
+        )
+        if(_LIBUSB_RUNTIME_DLL)
+            set(LIBUSB_RUNTIME_DLL "${_LIBUSB_RUNTIME_DLL}" CACHE FILEPATH "Path to libusb-1.0.dll for Windows deployment" FORCE)
+        endif()
+    endif()
+
+    foreach(_RTLSDR_PANEL_DLL IN ITEMS "${RTLSDR_RUNTIME_DLL}" "${LIBUSB_RUNTIME_DLL}")
+        if(_RTLSDR_PANEL_DLL)
+            list(APPEND RTLSDR_PANEL_RUNTIME_DLLS "${_RTLSDR_PANEL_DLL}")
+        endif()
+    endforeach()
 endif()
 
 set(PROJECT_SOURCES
@@ -93,11 +173,7 @@ target_link_libraries(rtlsdr-panel
         Qt${QT_VERSION_MAJOR}::Quick
 )
 
-if(TARGET PkgConfig::RTLSDR)
-    target_link_libraries(rtlsdr-panel PRIVATE PkgConfig::RTLSDR)
-else()
-    target_link_libraries(rtlsdr-panel PRIVATE rtlsdr::rtlsdr)
-endif()
+target_link_libraries(rtlsdr-panel PRIVATE ${RTLSDR_LINK_TARGET})
 
 target_compile_definitions(rtlsdr-panel
     PRIVATE
@@ -109,8 +185,66 @@ if(QT_VERSION_MAJOR EQUAL 6)
     set_target_properties(rtlsdr-panel PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
 endif()
 
+if(WIN32)
+    set_target_properties(rtlsdr-panel PROPERTIES WIN32_EXECUTABLE "${RTLSDR_PANEL_WIN32_GUI}")
+endif()
+
 install(TARGETS rtlsdr-panel RUNTIME DESTINATION bin)
+if(WIN32 AND RTLSDR_PANEL_RUNTIME_DLLS)
+    install(FILES ${RTLSDR_PANEL_RUNTIME_DLLS} DESTINATION bin)
+endif()
 
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(rtlsdr-panel)
+endif()
+
+if(WIN32)
+    foreach(_RTLSDR_PANEL_DLL IN LISTS RTLSDR_PANEL_RUNTIME_DLLS)
+        add_custom_command(TARGET rtlsdr-panel POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${_RTLSDR_PANEL_DLL}"
+                "$<TARGET_FILE_DIR:rtlsdr-panel>"
+            COMMENT "Copying ${_RTLSDR_PANEL_DLL} next to rtlsdr-panel.exe"
+            VERBATIM
+        )
+    endforeach()
+
+    set(_QT_BIN_DIR "")
+    if(TARGET Qt${QT_VERSION_MAJOR}::qmake)
+        get_target_property(_QT_QMAKE_EXECUTABLE Qt${QT_VERSION_MAJOR}::qmake IMPORTED_LOCATION)
+    endif()
+    if(_QT_QMAKE_EXECUTABLE)
+        get_filename_component(_QT_BIN_DIR "${_QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    endif()
+
+    find_program(WINDEPLOYQT_EXECUTABLE
+        NAMES windeployqt windeployqt.exe
+        HINTS "${_QT_BIN_DIR}"
+    )
+    set(RTLSDR_PANEL_WINDEPLOYQT_MODE "--release" CACHE STRING "Build mode argument passed to windeployqt, usually --release or --debug")
+
+    if(WINDEPLOYQT_EXECUTABLE)
+        set(_RTLSDR_PANEL_DEPLOY_COMMANDS
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                ${RTLSDR_PANEL_WINDEPLOYQT_MODE}
+                --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml"
+                "$<TARGET_FILE:rtlsdr-panel>"
+        )
+        foreach(_RTLSDR_PANEL_DLL IN LISTS RTLSDR_PANEL_RUNTIME_DLLS)
+            list(APPEND _RTLSDR_PANEL_DEPLOY_COMMANDS
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${_RTLSDR_PANEL_DLL}"
+                    "$<TARGET_FILE_DIR:rtlsdr-panel>"
+            )
+        endforeach()
+
+        add_custom_target(deploy-windows
+            ${_RTLSDR_PANEL_DEPLOY_COMMANDS}
+            DEPENDS rtlsdr-panel
+            COMMENT "Deploying Qt, QML, and RTL-SDR runtime files next to rtlsdr-panel.exe"
+            VERBATIM
+        )
+    else()
+        message(WARNING "windeployqt was not found. Add the Qt bin directory to PATH or run windeployqt manually after building.")
+    endif()
 endif()
